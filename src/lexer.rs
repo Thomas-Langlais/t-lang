@@ -1,4 +1,42 @@
 use std::io::{Read, Error};
+use std::fmt;
+
+// Tokens structures
+pub struct Token {
+    value: TokenType,
+    source: Location
+}
+
+#[derive(Debug)]
+pub enum TokenType {
+    LParen(char),
+    RParen(char),
+    Plus,
+    Minus,
+    Mul,
+    Div,
+    Int(u64),
+    Float(f64)
+}
+
+#[derive(Clone, Copy)]
+struct Location {
+    start: Position,
+    end: Position
+}
+
+#[derive(Clone, Copy)]
+struct Position {
+    column: usize,
+    line: usize,
+}
+
+// the span must be clonable because we are copying the span
+// to the token struct
+struct LexerContext {
+    result: Option<Result<u8, Error>>,
+    position: Position
+}
 
 /* lifetimes are important here because we need to define
 that the scope of the readable is where the methods are being called. */
@@ -7,6 +45,12 @@ pub struct Lexer<'a, R> where R: Read {
     input: Option<R>,
     context: LexerContext,
     pub tokens: Vec<Token>,
+}
+
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.value)
+    }
 }
 
 impl<'a, R> Iterator for Lexer<'a, R> where R: Read {
@@ -240,45 +284,7 @@ impl<'a, R> Lexer<'a, R> where R: Read<> {
     }
 }
 
-// the span must be clonable because we are copying the span
-// to the token struct
-struct LexerContext {
-    result: Option<Result<u8, Error>>,
-    position: Position
-}
-
-#[derive(Debug)]
-pub struct Token {
-    value: TokenType,
-    source: Location
-}
-
-#[derive(Debug)]
-pub enum TokenType {
-    LParen(char),
-    RParen(char),
-    Plus,
-    Minus,
-    Mul,
-    Div,
-    Int(u64),
-    Float(f64)
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Location {
-    start: Position,
-    end: Position
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Position {
-    column: usize,
-    line: usize,
-}
-
 impl LexerContext {
-    
     // update the context by setting the byte and
     // new position
     fn advance(&mut self, result: Option<Result<u8, Error>>) {

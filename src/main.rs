@@ -2,6 +2,10 @@ use std::io;
 
 // this is a form of inport in JS
 mod lexer;
+mod parser;
+
+use lexer::{Lexer};
+use parser::{Parser};
 
 // struct SingleLineReader<R> where R: Read {
 //     inner: R
@@ -18,8 +22,11 @@ fn main() {
     loop {
         print!("> ");
         // set the io handle for reading the stream
-        let mut reader = lexer::Lexer::new(&io::stdin);
+        let mut reader = Lexer::new(&io::stdin);
         reader.parse_tokens();
-        println!("{:#?}", reader.tokens);
+
+        let mut parser = Parser::new(&reader.tokens);
+
+        parser.generate_syntax_tree();
     }
 }

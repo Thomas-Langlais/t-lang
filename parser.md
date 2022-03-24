@@ -1,4 +1,5 @@
 # Grammar rules
-expression = term ((PLUS|MINUS) term)*
-term = factor ((MUL|DIV) factor)*
+operation = PLUS|MINUS|MUL|DIV
 factor = INT|FLOAT
+term = factor (operation factor)*
+expression = term (operation term)*

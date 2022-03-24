@@ -3,18 +3,21 @@ use std::fmt;
 
 // Tokens structures
 pub struct Token {
-    value: TokenType,
+    pub value: TokenType,
     source: Location
+}
+
+impl fmt::Debug for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.value)
+    }
 }
 
 #[derive(Debug)]
 pub enum TokenType {
     LParen(char),
     RParen(char),
-    Plus,
-    Minus,
-    Mul,
-    Div,
+    Operation(char),
     Int(u64),
     Float(f64)
 }
@@ -47,12 +50,6 @@ pub struct Lexer<'a, R> where R: Read {
     pub tokens: Vec<Token>,
 }
 
-impl fmt::Display for Token {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.value)
-    }
-}
-
 impl<'a, R> Iterator for Lexer<'a, R> where R: Read {
     type Item = Token;
 
@@ -76,7 +73,7 @@ impl<'a, R> Iterator for Lexer<'a, R> where R: Read {
                 Some(Ok(b'+')) => {
                     // create the token
                     let token = Some(Token {
-                        value: TokenType::Plus,
+                        value: TokenType::Operation('+'),
                         source: Location {
                             start: self.context.position,
                             end: self.context.position
@@ -89,7 +86,7 @@ impl<'a, R> Iterator for Lexer<'a, R> where R: Read {
                 Some(Ok(b'-')) => {
                     // create the token
                     let token = Some(Token {
-                        value: TokenType::Minus,
+                        value: TokenType::Operation('-'),
                         source: Location {
                             start: self.context.position,
                             end: self.context.position
@@ -102,7 +99,7 @@ impl<'a, R> Iterator for Lexer<'a, R> where R: Read {
                 Some(Ok(b'*')) => {
                     // create the token
                     let token = Some(Token {
-                        value: TokenType::Mul,
+                        value: TokenType::Operation('*'),
                         source: Location {
                             start: self.context.position,
                             end: self.context.position
@@ -115,7 +112,7 @@ impl<'a, R> Iterator for Lexer<'a, R> where R: Read {
                 Some(Ok(b'/')) => {
                     // create the token
                     let token = Some(Token {
-                        value: TokenType::Div,
+                        value: TokenType::Operation('/'),
                         source: Location {
                             start: self.context.position,
                             end: self.context.position

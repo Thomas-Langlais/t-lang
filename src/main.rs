@@ -27,6 +27,8 @@ fn main() {
 
         let mut parser = Parser::new(&reader.tokens);
 
-        parser.generate_syntax_tree();
+        let root = parser.generate_syntax_tree();
+
+        println!("{:#?}", root);
     }
 }

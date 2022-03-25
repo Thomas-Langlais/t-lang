@@ -2,9 +2,10 @@ use std::io::{Read, Error};
 use std::fmt;
 
 // Tokens structures
+#[derive(Clone, Copy)]
 pub struct Token {
     pub value: TokenType,
-    source: Location
+    pub source: Location
 }
 
 impl fmt::Debug for Token {
@@ -13,7 +14,7 @@ impl fmt::Debug for Token {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum TokenType {
     LParen(char),
     RParen(char),
@@ -23,137 +24,123 @@ pub enum TokenType {
 }
 
 #[derive(Clone, Copy)]
-struct Location {
-    start: Position,
-    end: Position
+pub struct Location {
+    pub start: Position,
+    pub end: Position
 }
 
-#[derive(Clone, Copy)]
-struct Position {
-    column: usize,
-    line: usize,
-}
-
-// the span must be clonable because we are copying the span
-// to the token struct
-struct LexerContext {
-    result: Option<Result<u8, Error>>,
-    position: Position
+#[derive(Copy, Clone)]
+pub struct Position {
+    pub column: usize,
+    pub line: usize,
 }
 
 /* lifetimes are important here because we need to define
 that the scope of the readable is where the methods are being called. */
-pub struct Lexer<'a, R> where R: Read {
-    lazy: &'a Fn() -> R,
-    input: Option<R>,
-    context: LexerContext,
-    pub tokens: Vec<Token>,
+pub struct Lexer<'a> {
+    buffer: &'a Vec<u8>,
+    pos: usize,
+    byte: Option<&'a u8>,
+    src: Position
 }
 
-impl<'a, R> Iterator for Lexer<'a, R> where R: Read {
+impl<'a> Iterator for Lexer<'a> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Token> {
-        if let None = self.input {
-            // create the readable from the iterator call
-            self.input = Some((self.lazy)());
-            // set the first byte at the init position
-            // we know that the unwrap call is safe here because of the initial input check
-            self.context.result = self.input.as_mut().unwrap().by_ref().bytes().next();
-        }
         // return the token generated from the loop
         // loop and return the next token we make
         return loop {
             // check the contents of the context
-            match self.context.result {
-                Some(Ok(b'0'..=b'9')) => {
+            match self.byte {
+                Some(b'0'..=b'9') => {
                     // implement here.
-                    break self.parse_number(self.context.position);
+                    break self.parse_number(self.src);
                 }
-                Some(Ok(b'+')) => {
+                Some(b'+') => {
                     // create the token
                     let token = Some(Token {
                         value: TokenType::Operation('+'),
                         source: Location {
-                            start: self.context.position,
-                            end: self.context.position
+                            start: self.src,
+                            end: self.src
                         }
                     });
                     // advance the iterator context to the next char
-                    self.context.advance(self.input.as_mut().unwrap().by_ref().bytes().next());
+                    self.advance();
                     break token;
                 }
-                Some(Ok(b'-')) => {
+                Some(b'-') => {
                     // create the token
                     let token = Some(Token {
                         value: TokenType::Operation('-'),
                         source: Location {
-                            start: self.context.position,
-                            end: self.context.position
+                            start: self.src,
+                            end: self.src
                         }
                     });
                     // advance the iterator context to the next char
-                    self.context.advance(self.input.as_mut().unwrap().by_ref().bytes().next());
+                    self.advance();
                     break token;
                 }
-                Some(Ok(b'*')) => {
+                Some(b'*') => {
                     // create the token
                     let token = Some(Token {
                         value: TokenType::Operation('*'),
                         source: Location {
-                            start: self.context.position,
-                            end: self.context.position
+                            start: self.src,
+                            end: self.src
                         }
                     });
                     // advance the iterator context to the next char
-                    self.context.advance(self.input.as_mut().unwrap().by_ref().bytes().next());
+                    self.advance();
                     break token;
                 }
-                Some(Ok(b'/')) => {
+                Some(b'/') => {
                     // create the token
                     let token = Some(Token {
                         value: TokenType::Operation('/'),
                         source: Location {
-                            start: self.context.position,
-                            end: self.context.position
+                            start: self.src,
+                            end: self.src
                         }
                     });
                     // advance the iterator context to the next char
-                    self.context.advance(self.input.as_mut().unwrap().by_ref().bytes().next());
+                    self.advance();
                     break token;
                 }
-                Some(Ok(b'(')) => {
+                Some(b'(') => {
                     // create the token
                     let token = Some(Token {
                         value: TokenType::LParen('('),
                         source: Location {
-                            start: self.context.position,
-                            end: self.context.position
+                            start: self.src,
+                            end: self.src
                         }
                     });
                     // advance the iterator context to the next char
-                    self.context.advance(self.input.as_mut().unwrap().by_ref().bytes().next());
+                    self.advance();
                     break token;
                 }
-                Some(Ok(b')')) => {
+                Some(b')') => {
                     // create the token
                     let token = Some(Token {
                         value: TokenType::RParen(')'),
                         source: Location {
-                            start: self.context.position,
-                            end: self.context.position
+                            start: self.src,
+                            end: self.src
                         }
                     });
                     // advance the iterator context to the next char
-                    self.context.advance(self.input.as_mut().unwrap().by_ref().bytes().next());
+                    self.advance();
                     break token;
                 }
                 // this is empty as we don't need to do any parsing on white spaces or tabs
-                Some(Ok(b' ')) | Some(Ok(b'\t')) => {
+                Some(b' ') | Some(b'\t') => {
                     // advance the iterator context to the next char
-                    self.context.advance(self.input.as_mut().unwrap().by_ref().bytes().next());
+                    self.advance();
                 }
-                Some(Ok(b'\n')) => {
+                Some(b'\n') => {
                     // handle a line change for when we hold debug data
                     break None
                 }
@@ -166,27 +153,35 @@ impl<'a, R> Iterator for Lexer<'a, R> where R: Read {
     }
 }
 
-impl<'a, R> Lexer<'a, R> where R: Read<> {
-    pub fn new(lazy: &'a Fn() -> R) -> Lexer<'a, R> {
+impl<'a> Lexer<'a> {
+    pub fn new(buf: &'a Vec<u8>) -> Lexer<'a> {
         Lexer {
-            lazy,
-            input: None,
-            context: LexerContext {
-                result: None,
-                position: Position {
-                    column: 0,
-                    line: 0
-                }
-            },
-            tokens: vec![]
+            buffer: buf,
+            pos: 0,
+            byte: buf.get(0),
+            src: Position {
+                column: 0,
+                line: 0
+            }
         }
     }
 
-    pub fn parse_tokens(&mut self) {
-        // create the token vector from the input Readable
+    pub fn parse_tokens(&mut self) -> Vec<Token> {
+        let mut tokens = vec![];
+
         while let Some(token) = self.next() {
-            self.tokens.push(token);
+            tokens.push(token);
         }
+
+        tokens
+    }
+    
+    // update the lexer by setting the byte and
+    // new position
+    fn advance(&mut self) {
+        self.pos += 1;
+        self.byte = self.buffer.get(self.pos);
+        self.src.column += 1;
     }
 
     // generic number parser, it will out put either a int or float
@@ -196,35 +191,32 @@ impl<'a, R> Lexer<'a, R> where R: Read<> {
         
         loop {
             // go to the next byte
-            match self.context.result {
-                Some(Ok(b @ b'0'..=b'9')) => {
+            match self.byte {
+                Some(b @ b'0'..=b'9') => {
                     // update the number
                     number = (number * 10) + u64::from(b - b'0');
                     // get the next byte
-                    self.context.advance(self.input.as_mut().unwrap().by_ref().bytes().next());
+                    self.advance();
                 }
-                Some(Ok(b'.')) => {
+                Some(b'.') => {
                     // get the next byte
-                    self.context.advance(self.input.as_mut().unwrap().by_ref().bytes().next());
+                    self.advance();
                     // return the float option
                     return self.parse_float(number, starting_position);
                 }
-                Some(Ok(b)) => {
+                Some(b) => {
                     let token = Token {
                         value: TokenType::Int(number),
                         source: Location {
                             start: starting_position,
                             end: Position {
-                                line: self.context.position.line,
-                                column: self.context.position.column - 1,
+                                line: self.src.line,
+                                column: self.src.column - 1,
                             }
                         }
                     };
                     // return the token
                     return Some(token);
-                }
-                Some(Err(_)) => {
-                    panic!("Error, parsing the number failed");
                 }
                 None => {
                     return None;
@@ -241,20 +233,20 @@ impl<'a, R> Lexer<'a, R> where R: Read<> {
         let mut power: f64 = 1.0;
         
         loop {
-            match self.context.result {
-                Some(Ok(b @ b'0'..=b'9')) => {
+            match self.byte {
+                Some(b @ b'0'..=b'9') => {
                     // update the power
                     power = power * 10f64;
                     // don't calculate if it's zero, as nothing will happen
-                    if b == b'0' {
+                    if *b == b'0' {
                         continue;
                     }
                     // update the number
                     decimal_point = decimal_point + (f64::from(b - b'0') / power);
                     // get the next byte
-                    self.context.advance(self.input.as_mut().unwrap().by_ref().bytes().next());
+                    self.advance();
                 }
-                Some(Ok(b)) => {
+                Some(_) => {
                     let token = Token {
                         // this is a lossy conversion and there will be no stoping from capturing
                         // this error at runtime atm. TODO
@@ -262,32 +254,18 @@ impl<'a, R> Lexer<'a, R> where R: Read<> {
                         source: Location {
                             start: starting_position,
                             end: Position {
-                                line: self.context.position.line,
-                                column: self.context.position.column - 1,
+                                line: self.src.line,
+                                column: self.src.column - 1,
                             }
                         }
                     };
                     // return the token
                     return Some(token);
                 }
-                Some(Err(_)) => {
-                    panic!("Error, parsing the number failed");
-                }
                 None => {
                     return None;
                 }
             }
         }
-    }
-}
-
-impl LexerContext {
-    // update the context by setting the byte and
-    // new position
-    fn advance(&mut self, result: Option<Result<u8, Error>>) {
-        // update the column 
-        self.position.column += 1;
-        // set the result
-        self.result = result;
     }
 }

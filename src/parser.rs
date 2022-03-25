@@ -1,5 +1,5 @@
-// use std::io::{Result};
 use phf::phf_map;
+use std::option::{self, Option};
 
 use crate::lexer::{Token, TokenType};
 
@@ -22,31 +22,31 @@ fn precedence(token_type: &TokenType) -> u8 {
 }
 
 #[derive(Debug)]
-pub struct FactorNode<'p> {
-    token: &'p Token,
+pub struct FactorNode {
+    token: Token,
 }
 
 #[derive(Debug)]
-pub struct TermNode<'p> {
-    op_token: &'p Token,
-    left_node: Box<SyntaxNode<'p>>,
-    right_node: Box<SyntaxNode<'p>>,
+pub struct TermNode {
+    op_token: Token,
+    left_node: Box<SyntaxNode>,
+    right_node: Box<SyntaxNode>,
 }
 
 #[derive(Debug)]
-pub enum SyntaxNode<'p> {
-    Factor(FactorNode<'p>),
-    Term(TermNode<'p>),
+pub enum SyntaxNode {
+    Factor(FactorNode),
+    Term(TermNode),
 }
 
-pub struct Parser<'p> {
-    tokens: &'p Vec<Token>,
+pub struct Parser {
+    tokens: Vec<Token>,
     token_index: usize,
-    current_token: Option<&'p Token>,
+    current_token: Option<Token>,
 }
 
-impl<'p> Parser<'p> {
-    pub fn new(tokens: &'p Vec<Token>) -> Parser<'p> {
+impl<'a> Parser {
+    pub fn new(tokens: Vec<Token>) -> Parser {
         Parser {
             tokens: tokens,
             token_index: 0,
@@ -54,13 +54,13 @@ impl<'p> Parser<'p> {
         }
     }
 
-    fn advance(&mut self) -> Option<&'p Token> {
+    fn advance(&mut self) -> Option<Token> {
         if matches!(self.current_token, Some(_)) {
             self.token_index += 1;
         }
 
         if self.token_index < self.tokens.len() {
-            self.current_token = Some(&self.tokens[self.token_index]);
+            self.current_token = Some(self.tokens[self.token_index]);
         } else {
             self.current_token = None;
         }
@@ -68,11 +68,12 @@ impl<'p> Parser<'p> {
         self.current_token
     }
 
-    pub fn generate_syntax_tree(&mut self) -> Result<Option<SyntaxNode>, String> {
+    pub fn generate_syntax_tree(mut self) -> Result<Option<SyntaxNode>, String> {
         // create the postfix ordered tokens
         let postfix_tokens = {
-            let mut result: Vec<&Token> = Vec::new();
-            let mut operation_stack: Vec<&Token> = Vec::new();
+            let mut result: Vec<Token> = Vec::new();
+            let mut operation_stack: Vec<Token> = Vec::new();
+            
             while let Some(token) = self.advance() {
                 match token.value {
                     TokenType::Int(_) | TokenType::Float(_) => {
@@ -160,7 +161,7 @@ impl<'p> Parser<'p> {
                 };
             }
             while operation_stack.len() > 0 {
-                let ref token = operation_stack.pop().unwrap();
+                let token = operation_stack.pop().unwrap();
 
                 if matches!(token.value, TokenType::LParen(_)) {
                     return Err(format!("Unmatched closing parentheses {:?}", token));
@@ -170,14 +171,15 @@ impl<'p> Parser<'p> {
 
             result
         };
+
         let mut token_iter = postfix_tokens.iter();
 
         // parse the ordered tokens into a syntax tree
         let mut operand_stack: Vec<SyntaxNode> = Vec::new();
-        while let Some(ref token) = token_iter.next() {
+        while let Some(token) = token_iter.next() {
             match token.value {
                 TokenType::Float(_) | TokenType::Int(_) => {
-                    operand_stack.push(SyntaxNode::Factor(FactorNode { token }));
+                    operand_stack.push(SyntaxNode::Factor(FactorNode { token: *token }));
                 }
                 TokenType::Operation(_) => {
                     assert!(operand_stack.len() >= 2, "Unfinished expression/term");
@@ -186,7 +188,7 @@ impl<'p> Parser<'p> {
                     let left_node = Box::new(operand_stack.pop().unwrap());
 
                     operand_stack.push(SyntaxNode::Term(TermNode {
-                        op_token: token,
+                        op_token: *token,
                         left_node: left_node,
                         right_node: right_node,
                     }));

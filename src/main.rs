@@ -1,38 +1,41 @@
-use std::io;
+use std::io::{self, BufRead, Write};
 
 // this is a form of inport in JS
 mod lexer;
 mod parser;
 
-use lexer::{Lexer};
-use parser::{Parser};
-
-// struct SingleLineReader<R> where R: Read {
-//     inner: R
-// }
-
-// impl<R> Read for SingleLineReader<R> where R: Read {
-
-// }
+use lexer::Lexer;
+use parser::Parser;
 
 fn main() {
-    println!("T-Lang Console");
-    println!("--------------------------------------");
+    print!("T-Lang Console\n");
+    print!("--------------------------------------\n");
 
     loop {
         print!("> ");
+        io::stdout().flush().unwrap();
+        
+        let stdin = io::stdin();
+        let mut handle = stdin.lock();
+        // can only handle one line at a time right now
+        let ref mut buffer: Vec<u8> = Vec::new();
+
+        handle.read_until(b'\n', buffer).unwrap();
+
         // set the io handle for reading the stream
-        let mut reader = Lexer::new(&io::stdin);
-        reader.parse_tokens();
+        let mut reader = Lexer::new(&buffer);
+        let tokens = reader.parse_tokens();
 
-        let mut parser = Parser::new(&reader.tokens);
-
+        let parser = Parser::new(tokens);
         let root = parser.generate_syntax_tree();
+
+        print!("= ");
         if let Ok(Some(node)) = &root {
-            println!("{:#?}", node);
+            print!("{:#?}\n", node);
         }
         if let Err(msg) = &root {
-            println!("{}", msg);
+            print!("{}\n", msg);
         }
+        io::stdout().flush().unwrap();
     }
 }

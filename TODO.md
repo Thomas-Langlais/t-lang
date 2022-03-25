@@ -7,6 +7,8 @@
 The lexer needs to be able to understand the lexemes that it's allowed to parse into the token list.
 To start, I'll just to arithmetic operations like `1 - 2`, `1 / 2`, `2 + 3 * 2`, and `(2 + 3) * 2` following BEDMAS operation order.
 
+Need to find a way to parse negative numbers. as it stands, the lexer determines it's an operation token and not a negative number
+
 ## The parser
 The parser must follow a finite grammar in order to deterministicly calculate the parse tree
 

@@ -28,7 +28,11 @@ fn main() {
         let mut parser = Parser::new(&reader.tokens);
 
         let root = parser.generate_syntax_tree();
-
-        println!("{:#?}", root);
+        if let Ok(Some(node)) = &root {
+            println!("{:#?}", node);
+        }
+        if let Err(msg) = &root {
+            println!("{}", msg);
+        }
     }
 }

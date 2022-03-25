@@ -1,5 +1,7 @@
-use crate::lexer::{Token, TokenType};
+// use std::io::{Result};
 use phf::phf_map;
+
+use crate::lexer::{Token, TokenType};
 
 static OPERATOR_PRECEDENCE: phf::Map<char, u8> = phf_map! {
     '*' => 3,
@@ -66,18 +68,36 @@ impl<'p> Parser<'p> {
         self.current_token
     }
 
-    pub fn generate_syntax_tree(&mut self) -> SyntaxNode {
+    pub fn generate_syntax_tree(&mut self) -> Result<Option<SyntaxNode>, String> {
         // create the postfix ordered tokens
         let postfix_tokens = {
             let mut result: Vec<&Token> = Vec::new();
             let mut operation_stack: Vec<&Token> = Vec::new();
-            
             while let Some(token) = self.advance() {
                 match token.value {
                     TokenType::Int(_) | TokenType::Float(_) => {
+                        if self.token_index > 0
+                            && !matches!(
+                                self.tokens[self.token_index - 1].value,
+                                TokenType::Operation(_) | TokenType::LParen(_)
+                            )
+                        {
+                            return Err(format!("A number can only come after an opening parenthesis or operator but got {:?}", self.tokens[self.token_index - 1]));
+                        }
                         result.push(token);
                     }
                     TokenType::Operation(op) => {
+                        if self.token_index > 0
+                            && !matches!(
+                                self.tokens[self.token_index - 1].value,
+                                TokenType::RParen(_) | TokenType::Int(_) | TokenType::Float(_)
+                            )
+                        {
+                            return Err(format!("An operator can only come after a closing parenthesis or operand but got {:?}", self.tokens[self.token_index - 1]));
+                        }
+                        if self.token_index == 0 {
+                            return Err("An expression cannot start with an operator".to_string());
+                        }
                         while operation_stack.len() > 0
                             && precedence(&operation_stack.last().unwrap().value)
                                 >= OPERATOR_PRECEDENCE[&op]
@@ -87,35 +107,64 @@ impl<'p> Parser<'p> {
                         operation_stack.push(token);
                     }
                     TokenType::LParen('(') => {
+                        if self.token_index > 0
+                            && !matches!(
+                                self.tokens[self.token_index - 1].value,
+                                TokenType::LParen('(') | TokenType::Operation(_)
+                            )
+                        {
+                            return Err("An ( can only come after a (, or operator".to_string());
+                        }
                         operation_stack.push(token);
                     }
                     TokenType::RParen(')') => {
+                        if self.token_index > 0
+                            && !matches!(
+                                self.tokens[self.token_index - 1].value,
+                                TokenType::RParen(')')
+                                    | TokenType::LParen('(') // empty parenthesis
+                                    | TokenType::Int(_)
+                                    | TokenType::Float(_)
+                            )
+                        {
+                            return Err(format!("A ) can only come after a ), int, or float"));
+                        }
+                        if self.token_index == 0 {
+                            return Err(format!("An expression cannot start with a )"));
+                        }
                         let mut op_option = operation_stack.pop();
                         let found = loop {
                             match op_option {
-                                None => {
-                                    break false
-                                },
-                                Some(Token { value: TokenType::LParen('('), .. }) => {
-                                    break true
-                                },
+                                None => break false,
+                                Some(Token {
+                                    value: TokenType::LParen('('),
+                                    ..
+                                }) => break true,
                                 Some(op_token) => {
                                     result.push(op_token);
                                     op_option = operation_stack.pop();
                                 }
                             }
                         };
-                        assert!(found, "Parser could not find the closing '(' {:?}", token);
+
+                        if !found {
+                            return Err(format!(
+                                "Parser could not find the closing '(' {:?}",
+                                token
+                            ));
+                        }
                     }
                     _ => {
-                        panic!("Parser cannot understand the grammar {:?}", token.value);
+                        panic!("Parser cannot understand the token {:?}", token.value);
                     }
                 };
             }
-    
             while operation_stack.len() > 0 {
                 let ref token = operation_stack.pop().unwrap();
-                assert!(!matches!(token.value, TokenType::LParen(_)), "Unmatched closing parentheses {:?}", token);
+
+                if matches!(token.value, TokenType::LParen(_)) {
+                    return Err(format!("Unmatched closing parentheses {:?}", token));
+                }
                 result.push(token);
             }
 
@@ -128,10 +177,8 @@ impl<'p> Parser<'p> {
         while let Some(ref token) = token_iter.next() {
             match token.value {
                 TokenType::Float(_) | TokenType::Int(_) => {
-                    operand_stack.push(SyntaxNode::Factor(FactorNode {
-                        token
-                    }));
-                },
+                    operand_stack.push(SyntaxNode::Factor(FactorNode { token }));
+                }
                 TokenType::Operation(_) => {
                     assert!(operand_stack.len() >= 2, "Unfinished expression/term");
 
@@ -141,16 +188,19 @@ impl<'p> Parser<'p> {
                     operand_stack.push(SyntaxNode::Term(TermNode {
                         op_token: token,
                         left_node: left_node,
-                        right_node: right_node
+                        right_node: right_node,
                     }));
-                },
+                }
                 _ => {
                     panic!("Unknown token ({:?}) in postfix ordered tokens", token)
                 }
             }
         }
-        assert_eq!(operand_stack.len(), 1, "unknown {0:#?} {1:#?}", operand_stack, self.tokens);
 
-        operand_stack.pop().unwrap()
+        if operand_stack.len() > 1 {
+            return Err(format!("unknown {0:#?} {1:#?}", operand_stack, self.tokens));
+        }
+
+        Ok(operand_stack.pop())
     }
 }

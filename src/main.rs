@@ -5,7 +5,7 @@ mod lexer;
 mod parser;
 
 use lexer::Lexer;
-use parser::Parser;
+use parser::{Parser, Evaluate};
 
 fn main() {
     print!("T-Lang Console\n");
@@ -14,7 +14,6 @@ fn main() {
     loop {
         print!("> ");
         io::stdout().flush().unwrap();
-        
         let stdin = io::stdin();
         let mut handle = stdin.lock();
         // can only handle one line at a time right now
@@ -26,16 +25,20 @@ fn main() {
         let mut reader = Lexer::new(&buffer);
         let tokens = reader.parse_tokens();
 
-        let parser = Parser::new(tokens);
-        let root = parser.generate_syntax_tree();
-
         print!("= ");
-        if let Ok(Some(node)) = &root {
-            print!("{:#?}\n", node);
+
+        let parser = Parser::new(tokens);
+
+        match parser.generate_syntax_tree() {
+            Ok(Some(ast)) => {
+                ast.evaluate();
+            }
+            Err(msg) => {
+                print!("{}", msg);
+            }
+            _ => {}
         }
-        if let Err(msg) = &root {
-            print!("{}\n", msg);
-        }
+        print!("\n");
         io::stdout().flush().unwrap();
     }
 }

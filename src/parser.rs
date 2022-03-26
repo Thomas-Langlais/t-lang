@@ -1,5 +1,4 @@
 use phf::phf_map;
-use std::option::{self, Option};
 
 use crate::lexer::{Token, TokenType};
 
@@ -39,6 +38,49 @@ pub enum SyntaxNode {
     Term(TermNode),
 }
 
+pub struct AbstractSyntaxTree {
+    inner: SyntaxNode,
+}
+
+pub trait Evaluate {
+    fn evaluate(&self);
+}
+
+impl Evaluate for AbstractSyntaxTree {
+    fn evaluate(&self) {
+        self.inner.evaluate();
+    }
+}
+
+impl Evaluate for SyntaxNode {
+    fn evaluate(&self) {
+        match self {
+            SyntaxNode::Factor(node) => {
+                node.evaluate();
+            }
+            SyntaxNode::Term(node) => {
+                node.evaluate();
+            }
+        };
+    }
+}
+
+impl Evaluate for FactorNode {
+    fn evaluate(&self) {
+        print!("{:?}", self.token.value);
+    }
+}
+
+impl Evaluate for TermNode {
+    fn evaluate(&self) {
+        print!("(");
+        self.left_node.evaluate();
+        print!(" {:?} ", self.op_token);
+        self.right_node.evaluate();
+        print!(")");
+    }
+}
+
 pub struct Parser {
     tokens: Vec<Token>,
     token_index: usize,
@@ -68,12 +110,11 @@ impl<'a> Parser {
         self.current_token
     }
 
-    pub fn generate_syntax_tree(mut self) -> Result<Option<SyntaxNode>, String> {
+    pub fn generate_syntax_tree(mut self) -> Result<Option<AbstractSyntaxTree>, String> {
         // create the postfix ordered tokens
         let postfix_tokens = {
             let mut result: Vec<Token> = Vec::new();
             let mut operation_stack: Vec<Token> = Vec::new();
-            
             while let Some(token) = self.advance() {
                 match token.value {
                     TokenType::Int(_) | TokenType::Float(_) => {
@@ -203,6 +244,9 @@ impl<'a> Parser {
             return Err(format!("unknown {0:#?} {1:#?}", operand_stack, self.tokens));
         }
 
-        Ok(operand_stack.pop())
+        Ok(match operand_stack.pop() {
+            Some(node) => Some(AbstractSyntaxTree { inner: node }),
+            None => None,
+        })
     }
 }

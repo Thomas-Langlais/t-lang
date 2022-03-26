@@ -1,4 +1,3 @@
-use std::io::{Read, Error};
 use std::fmt;
 
 // Tokens structures
@@ -204,7 +203,7 @@ impl<'a> Lexer<'a> {
                     // return the float option
                     return self.parse_float(number, starting_position);
                 }
-                Some(b) => {
+                Some(_) => {
                     let token = Token {
                         value: TokenType::Int(number),
                         source: Location {

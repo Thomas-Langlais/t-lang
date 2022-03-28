@@ -31,7 +31,7 @@ fn main() {
 
         match parser.generate_syntax_tree() {
             Ok(Some(ast)) => {
-                ast.evaluate();
+                print!("{}", ast.evaluate());
             }
             Err(msg) => {
                 print!("{}", msg);

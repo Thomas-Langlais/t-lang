@@ -1,7 +1,6 @@
 use std::fmt;
 
 // Tokens structures
-#[derive(Clone, Copy)]
 pub struct Token {
     pub value: TokenType,
     pub source: Location
@@ -13,7 +12,7 @@ impl fmt::Debug for Token {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenType {
     LParen(char),
     RParen(char),
@@ -141,7 +140,7 @@ impl<'a> Iterator for Lexer<'a> {
                 }
                 Some(b'\n') => {
                     // handle a line change for when we hold debug data
-                    break None
+                    return None
                 }
                 _ => {
                     panic!("ERROR");

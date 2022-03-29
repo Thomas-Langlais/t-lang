@@ -30,13 +30,12 @@ fn main() {
         let parser = Parser::new(tokens);
 
         match parser.generate_syntax_tree() {
-            Ok(Some(ast)) => {
+            Ok(ast) => {
                 print!("{}", ast.evaluate());
             }
             Err(msg) => {
                 print!("{}", msg);
             }
-            _ => {}
         }
         print!("\n");
         io::stdout().flush().unwrap();

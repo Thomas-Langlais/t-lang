@@ -1,25 +1,8 @@
-use phf::phf_map;
 use std::fmt::{Display, Formatter, Result as FormatResult};
+use std::mem;
+use std::vec::IntoIter;
 
 use crate::lexer::{Token, TokenType};
-
-static OPERATOR_PRECEDENCE: phf::Map<char, u8> = phf_map! {
-    '*' => 3,
-    '/' => 3,
-    '+' => 2,
-    '-' => 2,
-    '(' => 1
-};
-
-fn precedence(token_type: &TokenType) -> u8 {
-    let ref op_char = match token_type {
-        TokenType::Operation(op) => op,
-        TokenType::LParen(lp) => lp,
-        _ => panic!("Parser should only have operations and left parentheses"),
-    };
-
-    OPERATOR_PRECEDENCE[op_char]
-}
 
 #[derive(Debug)]
 pub struct FactorNode {
@@ -45,14 +28,14 @@ pub struct AbstractSyntaxTree {
 
 pub enum EvaluationResult {
     Float(f64),
-    Int(u64)
+    Int(u64),
 }
 
 impl Display for EvaluationResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
         match self {
             EvaluationResult::Int(int) => f.write_fmt(format_args!("{}", int)),
-            EvaluationResult::Float(float) => f.write_fmt(format_args!("{}", float))
+            EvaluationResult::Float(float) => f.write_fmt(format_args!("{}", float)),
         }
     }
 }
@@ -212,171 +195,125 @@ impl Evaluate for TermNode {
 }
 
 pub struct Parser {
-    tokens: Vec<Token>,
-    token_index: usize,
+    tokens: IntoIter<Token>,
     current_token: Option<Token>,
 }
 
+pub type ParseResult = Result<AbstractSyntaxTree, String>;
+type InternalParseResult = Result<SyntaxNode, String>;
+
+static EXPRESSION_OPS: [TokenType; 2] = [TokenType::Operation('+'), TokenType::Operation('-')];
+static TERM_OPS: [TokenType; 2] = [TokenType::Operation('*'), TokenType::Operation('/')];
+
 impl<'a> Parser {
     pub fn new(tokens: Vec<Token>) -> Parser {
-        Parser {
-            tokens: tokens,
-            token_index: 0,
+        let mut parser = Parser {
+            tokens: tokens.into_iter(),
             current_token: None,
-        }
-    }
-
-    fn advance(&mut self) -> Option<Token> {
-        if matches!(self.current_token, Some(_)) {
-            self.token_index += 1;
-        }
-
-        if self.token_index < self.tokens.len() {
-            self.current_token = Some(self.tokens[self.token_index]);
-        } else {
-            self.current_token = None;
-        }
-
-        self.current_token
-    }
-
-    pub fn generate_syntax_tree(mut self) -> Result<Option<AbstractSyntaxTree>, String> {
-        // create the postfix ordered tokens
-        let postfix_tokens = {
-            let mut result: Vec<Token> = Vec::new();
-            let mut operation_stack: Vec<Token> = Vec::new();
-            while let Some(token) = self.advance() {
-                match token.value {
-                    TokenType::Int(_) | TokenType::Float(_) => {
-                        if self.token_index > 0
-                            && !matches!(
-                                self.tokens[self.token_index - 1].value,
-                                TokenType::Operation(_) | TokenType::LParen(_)
-                            )
-                        {
-                            return Err(format!("A number can only come after an opening parenthesis or operator but got {:?}", self.tokens[self.token_index - 1]));
-                        }
-                        result.push(token);
-                    }
-                    TokenType::Operation(op) => {
-                        if self.token_index > 0
-                            && !matches!(
-                                self.tokens[self.token_index - 1].value,
-                                TokenType::RParen(_) | TokenType::Int(_) | TokenType::Float(_)
-                            )
-                        {
-                            return Err(format!("An operator can only come after a closing parenthesis or operand but got {:?}", self.tokens[self.token_index - 1]));
-                        }
-                        if self.token_index == 0 {
-                            return Err("An expression cannot start with an operator".to_string());
-                        }
-                        while operation_stack.len() > 0
-                            && precedence(&operation_stack.last().unwrap().value)
-                                >= OPERATOR_PRECEDENCE[&op]
-                        {
-                            result.push(operation_stack.pop().unwrap());
-                        }
-                        operation_stack.push(token);
-                    }
-                    TokenType::LParen('(') => {
-                        if self.token_index > 0
-                            && !matches!(
-                                self.tokens[self.token_index - 1].value,
-                                TokenType::LParen('(') | TokenType::Operation(_)
-                            )
-                        {
-                            return Err("An ( can only come after a (, or operator".to_string());
-                        }
-                        operation_stack.push(token);
-                    }
-                    TokenType::RParen(')') => {
-                        if self.token_index > 0
-                            && !matches!(
-                                self.tokens[self.token_index - 1].value,
-                                TokenType::RParen(')')
-                                    | TokenType::LParen('(') // empty parenthesis
-                                    | TokenType::Int(_)
-                                    | TokenType::Float(_)
-                            )
-                        {
-                            return Err(format!("A ) can only come after a ), int, or float"));
-                        }
-                        if self.token_index == 0 {
-                            return Err(format!("An expression cannot start with a )"));
-                        }
-                        let mut op_option = operation_stack.pop();
-                        let found = loop {
-                            match op_option {
-                                None => break false,
-                                Some(Token {
-                                    value: TokenType::LParen('('),
-                                    ..
-                                }) => break true,
-                                Some(op_token) => {
-                                    result.push(op_token);
-                                    op_option = operation_stack.pop();
-                                }
-                            }
-                        };
-
-                        if !found {
-                            return Err(format!(
-                                "Parser could not find the closing '(' {:?}",
-                                token
-                            ));
-                        }
-                    }
-                    _ => {
-                        panic!("Parser cannot understand the token {:?}", token.value);
-                    }
-                };
-            }
-            while operation_stack.len() > 0 {
-                let token = operation_stack.pop().unwrap();
-
-                if matches!(token.value, TokenType::LParen(_)) {
-                    return Err(format!("Unmatched closing parentheses {:?}", token));
-                }
-                result.push(token);
-            }
-
-            result
         };
+        parser.advance();
 
-        let mut token_iter = postfix_tokens.iter();
+        parser
+    }
 
-        // parse the ordered tokens into a syntax tree
-        let mut operand_stack: Vec<SyntaxNode> = Vec::new();
-        while let Some(token) = token_iter.next() {
+    fn advance(&mut self) {
+        self.current_token = self.tokens.next();
+    }
+
+    /**
+     * helper functions for parsing grammar nodes into the stacks
+     */
+
+    fn factor(&mut self) -> InternalParseResult {
+        if let Some(token) = self.current_token.as_ref() {
             match token.value {
-                TokenType::Float(_) | TokenType::Int(_) => {
-                    operand_stack.push(SyntaxNode::Factor(FactorNode { token: *token }));
-                }
-                TokenType::Operation(_) => {
-                    assert!(operand_stack.len() >= 2, "Unfinished expression/term");
-
-                    let right_node = Box::new(operand_stack.pop().unwrap());
-                    let left_node = Box::new(operand_stack.pop().unwrap());
-
-                    operand_stack.push(SyntaxNode::Term(TermNode {
-                        op_token: *token,
-                        left_node: left_node,
-                        right_node: right_node,
+                TokenType::Int(_) | TokenType::Float(_) => {
+                    let current_token = mem::replace(&mut self.current_token, None).unwrap();
+                    self.advance();
+                    
+                    return Ok(SyntaxNode::Factor(FactorNode {
+                        token: current_token,
                     }));
                 }
-                _ => {
-                    panic!("Unknown token ({:?}) in postfix ordered tokens", token)
+                TokenType::LParen('(') => {
+                    self.advance();
+                    
+                    let result = self.expression();
+                    if let Err(err) = result {
+                        return Err(err);
+                    }
+                    
+                    let expression = result.unwrap();
+                    match &self.current_token {
+                        Some(token) => {
+                            if token.value == TokenType::RParen(')') {
+                                self.advance();
+                                return Ok(expression);
+                            } else {
+                                return Err("Expected ')'".to_string());
+                            }
+                        },
+                        None => {
+                            return Err("Expected ')'".to_string());
+                        }
+                    }
                 }
+                _ => {}
             }
         }
+        Err("Expected an int or float".to_string())
+    }
 
-        if operand_stack.len() > 1 {
-            return Err(format!("unknown {0:#?} {1:#?}", operand_stack, self.tokens));
+    fn term(&mut self) -> InternalParseResult {
+        let func = |parser: &mut Parser| parser.factor();
+        self.bin_op(func, &TERM_OPS)
+    }
+
+    fn expression(&mut self) -> InternalParseResult {
+        let func = |parser: &mut Parser| parser.term();
+        self.bin_op(func, &EXPRESSION_OPS)
+    }
+
+    fn bin_op(
+        &mut self,
+        func: fn(&mut Parser) -> InternalParseResult,
+        ops: &[TokenType],
+    ) -> InternalParseResult {
+        let left_result = func(self);
+        if let Err(err) = left_result {
+            return Err(err);
         }
 
-        Ok(match operand_stack.pop() {
-            Some(node) => Some(AbstractSyntaxTree { inner: node }),
-            None => None,
-        })
+        let mut left = left_result.unwrap();
+        while let Some(token) = &self.current_token {
+            if !ops.iter().any(|op| token.value == *op) {
+                break;
+            }
+
+            let op_token = mem::replace(&mut self.current_token, None).unwrap();
+            self.advance();
+
+            let right_result = func(self);
+            if let Err(err) = right_result {
+                return Err(err);
+            }
+            let right = right_result.unwrap();
+
+            left = SyntaxNode::Term(TermNode {
+                left_node: Box::new(left),
+                op_token: op_token,
+                right_node: Box::new(right),
+            });
+        }
+
+        Ok(left)
+    }
+
+    pub fn generate_syntax_tree(mut self) -> ParseResult {
+        let result = self.expression();
+        match result {
+            Ok(node) => Ok(AbstractSyntaxTree { inner: node }),
+            Err(err) => Err(err),
+        }
     }
 }

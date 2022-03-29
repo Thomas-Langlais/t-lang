@@ -1,5 +1,5 @@
 # Grammar rules
-operator = PLUS|MINUS|MUL|DIV
-factor = INT|FLOAT
-term = factor (operator factor)*
-expression = term (operator term)*
+expression = term (PLUS|MINUS term)*
+term       = factor (MUL|DIV factor)*
+factor     = INT|FLOAT
+           = LParen expression RParen

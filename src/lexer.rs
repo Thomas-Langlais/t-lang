@@ -18,7 +18,8 @@ pub enum TokenType {
     RParen(char),
     Operation(char),
     Int(u64),
-    Float(f64)
+    Float(f64),
+    EOF
 }
 
 #[derive(Clone, Copy)]
@@ -140,7 +141,13 @@ impl<'a> Iterator for Lexer<'a> {
                 }
                 Some(b'\n') => {
                     // handle a line change for when we hold debug data
-                    return None
+                    break Some(Token {
+                        value: TokenType::EOF,
+                        source: Location {
+                            start: self.src,
+                            end: self.src
+                        }
+                    });
                 }
                 _ => {
                     panic!("ERROR");
@@ -168,7 +175,11 @@ impl<'a> Lexer<'a> {
         let mut tokens = vec![];
 
         while let Some(token) = self.next() {
+            let token_type = token.value;
             tokens.push(token);
+            if let TokenType::EOF = token_type {
+                break;
+            }
         }
 
         tokens

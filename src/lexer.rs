@@ -1,4 +1,5 @@
 use std::fmt;
+use std::string::ToString;
 
 // Tokens structures
 pub struct Token {
@@ -20,6 +21,19 @@ pub enum TokenType {
     Int(u64),
     Float(f64),
     EOF
+}
+
+impl ToString for TokenType {
+    fn to_string(&self) -> String {
+        match self {
+            TokenType::LParen(lp) => lp.to_string(),
+            TokenType::RParen(rp) => rp.to_string(),
+            TokenType::Operation(op) => op.to_string(),
+            TokenType::Int(int) => int.to_string(),
+            TokenType::Float(float) => float.to_string(),
+            TokenType::EOF => "\\n".to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]

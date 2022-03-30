@@ -3,6 +3,7 @@ use std::mem;
 use std::vec::IntoIter;
 
 use crate::lexer::{Location, Token, TokenType};
+use crate::interpreter::{Interpret, InterpretedType};
 
 pub enum ParseError {
     SyntaxError(IllegalSyntaxError),
@@ -66,20 +67,20 @@ impl Display for IllegalSyntaxError {
 
 #[derive(Debug)]
 pub struct FactorNode {
-    token: Token,
+    pub token: Token,
 }
 
 #[derive(Debug)]
 pub struct UnaryNode {
-    op_token: Token,
-    node: Box<SyntaxNode>
+    pub op_token: Token,
+    pub node: Box<SyntaxNode>
 }
 
 #[derive(Debug)]
 pub struct TermNode {
-    op_token: Token,
-    left_node: Box<SyntaxNode>,
-    right_node: Box<SyntaxNode>,
+    pub op_token: Token,
+    pub left_node: Box<SyntaxNode>,
+    pub right_node: Box<SyntaxNode>,
 }
 
 #[derive(Debug)]
@@ -93,185 +94,9 @@ pub struct AbstractSyntaxTree {
     inner: SyntaxNode,
 }
 
-pub enum EvaluationResult {
-    Float(f64),
-    Int(i64),
-}
-
-impl Display for EvaluationResult {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
-        match self {
-            EvaluationResult::Int(int) => f.write_fmt(format_args!("{}", int)),
-            EvaluationResult::Float(float) => f.write_fmt(format_args!("{}", float)),
-        }
-    }
-}
-
-pub trait Evaluate {
-    fn evaluate(&self) -> EvaluationResult;
-}
-
-impl Evaluate for AbstractSyntaxTree {
-    fn evaluate(&self) -> EvaluationResult {
-        self.inner.evaluate()
-    }
-}
-// use an enum for evalutation results
-// I can use this to my advantage to avoid unknown typing issues in rust
-
-impl Evaluate for SyntaxNode {
-    fn evaluate(&self) -> EvaluationResult {
-        match self {
-            SyntaxNode::Factor(node) => node.evaluate(),
-            SyntaxNode::UnaryFactor(node) => node.evaluate(),
-            SyntaxNode::Term(node) => node.evaluate(),
-        }
-    }
-}
-
-impl Evaluate for FactorNode {
-    fn evaluate(&self) -> EvaluationResult {
-        match self.token.value {
-            TokenType::Int(int) => EvaluationResult::Int(int),
-            TokenType::Float(float) => EvaluationResult::Float(float),
-            _ => panic!("A factor should only be a int or a float"),
-        }
-    }
-}
-
-impl Evaluate for UnaryNode {
-    fn evaluate(&self) -> EvaluationResult {
-        if matches!(self.op_token.value, TokenType::Operation('+')) {
-            return self.node.evaluate();
-        }
-        if matches!(self.op_token.value, TokenType::Operation('-')) {
-            return subtract(EvaluationResult::Int(0), self.node.evaluate());
-        }
-
-        panic!("A unary operator can only be -/+");
-    }
-}
-
-fn add(left: EvaluationResult, right: EvaluationResult) -> EvaluationResult {
-    if let EvaluationResult::Int(left_int) = left {
-        if let EvaluationResult::Int(right_int) = right {
-            let result = left_int + right_int;
-            return EvaluationResult::Int(result);
-        }
-        if let EvaluationResult::Float(right_float) = right {
-            let left_float = left_int as f64;
-            let result = left_float + right_float;
-            return EvaluationResult::Float(result);
-        }
-    }
-    if let EvaluationResult::Float(left_float) = left {
-        if let EvaluationResult::Int(right_int) = right {
-            let right_float = right_int as f64;
-            let result = left_float + right_float;
-            return EvaluationResult::Float(result);
-        }
-        if let EvaluationResult::Float(right_float) = right {
-            let result = left_float + right_float;
-            return EvaluationResult::Float(result);
-        }
-    }
-    // It should NEVER reach here
-    panic!("Cannot add a non i64 or f64");
-}
-
-fn subtract(left: EvaluationResult, right: EvaluationResult) -> EvaluationResult {
-    if let EvaluationResult::Int(left_int) = left {
-        if let EvaluationResult::Int(right_int) = right {
-            let result = left_int - right_int;
-            return EvaluationResult::Int(result);
-        }
-        if let EvaluationResult::Float(right_float) = right {
-            let left_float = left_int as f64;
-            let result = left_float - right_float;
-            return EvaluationResult::Float(result);
-        }
-    }
-    if let EvaluationResult::Float(left_float) = left {
-        if let EvaluationResult::Int(right_int) = right {
-            let right_float = right_int as f64;
-            let result = left_float - right_float;
-            return EvaluationResult::Float(result);
-        }
-        if let EvaluationResult::Float(right_float) = right {
-            let result = left_float - right_float;
-            return EvaluationResult::Float(result);
-        }
-    }
-    // It should NEVER reach here
-    panic!("Cannot subtract a non i64 or f64");
-}
-
-fn multiply(left: EvaluationResult, right: EvaluationResult) -> EvaluationResult {
-    if let EvaluationResult::Int(left_int) = left {
-        if let EvaluationResult::Int(right_int) = right {
-            let result = left_int * right_int;
-            return EvaluationResult::Int(result);
-        }
-        if let EvaluationResult::Float(right_float) = right {
-            let left_float = left_int as f64;
-            let result = left_float * right_float;
-            return EvaluationResult::Float(result);
-        }
-    }
-    if let EvaluationResult::Float(left_float) = left {
-        if let EvaluationResult::Int(right_int) = right {
-            let right_float = right_int as f64;
-            let result = left_float * right_float;
-            return EvaluationResult::Float(result);
-        }
-        if let EvaluationResult::Float(right_float) = right {
-            let result = left_float * right_float;
-            return EvaluationResult::Float(result);
-        }
-    }
-    // It should NEVER reach here
-    panic!("Cannot multiply a non i64 or f64");
-}
-
-fn divide(left: EvaluationResult, right: EvaluationResult) -> EvaluationResult {
-    if let EvaluationResult::Int(left_int) = left {
-        if let EvaluationResult::Int(right_int) = right {
-            let result = left_int / right_int;
-            return EvaluationResult::Int(result);
-        }
-        if let EvaluationResult::Float(right_float) = right {
-            let left_float = left_int as f64;
-            let result = left_float / right_float;
-            return EvaluationResult::Float(result);
-        }
-    }
-    if let EvaluationResult::Float(left_float) = left {
-        if let EvaluationResult::Int(right_int) = right {
-            let right_float = right_int as f64;
-            let result = left_float / right_float;
-            return EvaluationResult::Float(result);
-        }
-        if let EvaluationResult::Float(right_float) = right {
-            let result = left_float / right_float;
-            return EvaluationResult::Float(result);
-        }
-    }
-    // It should NEVER reach here
-    panic!("Cannot divide a non i64 or f64");
-}
-
-impl Evaluate for TermNode {
-    fn evaluate(&self) -> EvaluationResult {
-        let left_result = self.left_node.evaluate();
-        let right_result = self.right_node.evaluate();
-
-        match self.op_token.value {
-            TokenType::Operation('+') => add(left_result, right_result),
-            TokenType::Operation('-') => subtract(left_result, right_result),
-            TokenType::Operation('*') => multiply(left_result, right_result),
-            TokenType::Operation('/') => divide(left_result, right_result),
-            _ => panic!("Only +,-,*,/ are allowed\nop {:?}", self.op_token),
-        }
+impl Interpret for AbstractSyntaxTree {
+    fn interpret(&self) -> InterpretedType {
+        self.inner.interpret()
     }
 }
 

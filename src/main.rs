@@ -3,9 +3,11 @@ use std::io::{self, BufRead, Write};
 // this is a form of inport in JS
 mod lexer;
 mod parser;
+mod interpreter;
 
 use lexer::Lexer;
-use parser::{Parser, Evaluate};
+use parser::Parser;
+use interpreter::Interpret;
 
 fn main() {
     print!("T-Lang Console\n");
@@ -29,7 +31,7 @@ fn main() {
         let mut parser = Parser::new(tokens);
         match parser.generate_syntax_tree() {
             Ok(ast) => {
-                print!("= {}", ast.evaluate());
+                print!("= {}", ast.interpret());
             }
             Err(msg) => {
                 print!("{}", msg);

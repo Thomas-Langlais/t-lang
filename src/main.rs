@@ -25,13 +25,11 @@ fn main() {
         let mut reader = Lexer::new(&buffer);
         let tokens = reader.parse_tokens();
 
-        print!("= ");
 
-        let parser = Parser::new(tokens);
-
+        let mut parser = Parser::new(tokens);
         match parser.generate_syntax_tree() {
             Ok(ast) => {
-                print!("{}", ast.evaluate());
+                print!("= {}", ast.evaluate());
             }
             Err(msg) => {
                 print!("{}", msg);

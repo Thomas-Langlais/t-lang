@@ -70,6 +70,12 @@ pub struct FactorNode {
 }
 
 #[derive(Debug)]
+pub struct UnaryNode {
+    op_token: Token,
+    node: Box<SyntaxNode>
+}
+
+#[derive(Debug)]
 pub struct TermNode {
     op_token: Token,
     left_node: Box<SyntaxNode>,
@@ -79,6 +85,7 @@ pub struct TermNode {
 #[derive(Debug)]
 pub enum SyntaxNode {
     Factor(FactorNode),
+    UnaryFactor(UnaryNode),
     Term(TermNode),
 }
 
@@ -88,7 +95,7 @@ pub struct AbstractSyntaxTree {
 
 pub enum EvaluationResult {
     Float(f64),
-    Int(u64),
+    Int(i64),
 }
 
 impl Display for EvaluationResult {
@@ -116,6 +123,7 @@ impl Evaluate for SyntaxNode {
     fn evaluate(&self) -> EvaluationResult {
         match self {
             SyntaxNode::Factor(node) => node.evaluate(),
+            SyntaxNode::UnaryFactor(node) => node.evaluate(),
             SyntaxNode::Term(node) => node.evaluate(),
         }
     }
@@ -128,6 +136,19 @@ impl Evaluate for FactorNode {
             TokenType::Float(float) => EvaluationResult::Float(float),
             _ => panic!("A factor should only be a int or a float"),
         }
+    }
+}
+
+impl Evaluate for UnaryNode {
+    fn evaluate(&self) -> EvaluationResult {
+        if matches!(self.op_token.value, TokenType::Operation('+')) {
+            return self.node.evaluate();
+        }
+        if matches!(self.op_token.value, TokenType::Operation('-')) {
+            return subtract(EvaluationResult::Int(0), self.node.evaluate());
+        }
+
+        panic!("A unary operator can only be -/+");
     }
 }
 
@@ -155,7 +176,7 @@ fn add(left: EvaluationResult, right: EvaluationResult) -> EvaluationResult {
         }
     }
     // It should NEVER reach here
-    panic!("Cannot add a non u64 or f64");
+    panic!("Cannot add a non i64 or f64");
 }
 
 fn subtract(left: EvaluationResult, right: EvaluationResult) -> EvaluationResult {
@@ -182,7 +203,7 @@ fn subtract(left: EvaluationResult, right: EvaluationResult) -> EvaluationResult
         }
     }
     // It should NEVER reach here
-    panic!("Cannot subtract a non u64 or f64");
+    panic!("Cannot subtract a non i64 or f64");
 }
 
 fn multiply(left: EvaluationResult, right: EvaluationResult) -> EvaluationResult {
@@ -209,7 +230,7 @@ fn multiply(left: EvaluationResult, right: EvaluationResult) -> EvaluationResult
         }
     }
     // It should NEVER reach here
-    panic!("Cannot multiply a non u64 or f64");
+    panic!("Cannot multiply a non i64 or f64");
 }
 
 fn divide(left: EvaluationResult, right: EvaluationResult) -> EvaluationResult {
@@ -236,7 +257,7 @@ fn divide(left: EvaluationResult, right: EvaluationResult) -> EvaluationResult {
         }
     }
     // It should NEVER reach here
-    panic!("Cannot divide a non u64 or f64");
+    panic!("Cannot divide a non i64 or f64");
 }
 
 impl Evaluate for TermNode {
@@ -321,11 +342,25 @@ impl<'a> Parser {
         let current_token = mem::replace(&mut self.current_token, None).unwrap();
 
         match current_token.value {
+            TokenType::Operation('+') | TokenType::Operation('-') => {
+                self.advance();
+                let factor_result = self.factor();
+
+                if let Err(err) = factor_result {
+                    return Err(err)
+                }
+
+                let factor = unsafe { factor_result.unwrap_unchecked() };
+                Ok(SyntaxNode::UnaryFactor(UnaryNode {
+                    op_token: current_token,
+                    node: Box::new(factor)
+                }))
+            },
             TokenType::Int(_) | TokenType::Float(_) => {
                 self.advance();
-                return Ok(SyntaxNode::Factor(FactorNode {
+                Ok(SyntaxNode::Factor(FactorNode {
                     token: current_token,
-                }));
+                }))
             }
             TokenType::LParen('(') => {
                 self.advance();

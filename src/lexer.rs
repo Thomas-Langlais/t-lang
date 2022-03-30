@@ -18,7 +18,7 @@ pub enum TokenType {
     LParen(char),
     RParen(char),
     Operation(char),
-    Int(u64),
+    Int(i64),
     Float(f64),
     EOF
 }
@@ -210,14 +210,14 @@ impl<'a> Lexer<'a> {
     // generic number parser, it will out put either a int or float
     fn parse_number(&mut self, starting_position: Position) -> Option<Token> {
         // starting number
-        let mut number = 0u64;
+        let mut number = 0i64;
         
         loop {
             // go to the next byte
             match self.byte {
                 Some(b @ b'0'..=b'9') => {
                     // update the number
-                    number = (number * 10) + u64::from(b - b'0');
+                    number = (number * 10) + i64::from(b - b'0');
                     // get the next byte
                     self.advance();
                 }
@@ -249,7 +249,7 @@ impl<'a> Lexer<'a> {
     }
 
     // parse the number into a float token
-    fn parse_float(&mut self, number: u64, starting_position: Position) -> Option<Token> {
+    fn parse_float(&mut self, number: i64, starting_position: Position) -> Option<Token> {
         // the decimal point
         let mut decimal_point: f64 = 0.0;
         // starting point for the power, it updates t o10 to react to the first decimal point digit

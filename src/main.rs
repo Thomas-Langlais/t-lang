@@ -7,7 +7,7 @@ mod interpreter;
 
 use lexer::Lexer;
 use parser::Parser;
-use interpreter::Interpret;
+use interpreter::Execute;
 
 fn main() {
     print!("T-Lang Console\n");
@@ -37,7 +37,7 @@ fn main() {
         }
 
         let ast = unsafe { ast_result.unwrap_unchecked() };
-        match ast.interpret() {
+        match ast.execute() {
             Ok(inter_type) => {
                 print!("= {}\n", inter_type);
             }

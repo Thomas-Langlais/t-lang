@@ -22,11 +22,11 @@ pub enum InterpreterError {
 }
 
 impl DivideByZeroError {
-    fn new(details: &str, start: usize, end: usize, line: usize) -> DivideByZeroError {
+    fn new(details: &str, source: String, start: usize, end: usize, line: usize) -> DivideByZeroError {
         DivideByZeroError {
             name: String::from("Divide by zero"),
             details: String::from(details),
-            source: String::new(),
+            source: source,
             line,
             start,
             end,
@@ -75,22 +75,44 @@ impl Display for DivideByZeroError {
     }
 }
 
+pub struct ExecutionContext {
+    source_text: String,
+    current_pos: (usize, usize), 
+}
+
+impl ExecutionContext {
+    pub fn new(source_text: String) -> ExecutionContext {
+        ExecutionContext {
+            source_text,
+            current_pos: (0, 0),
+        }
+    }
+}
+
+pub trait Execute {
+    fn execute(&self) -> InterpreterResult;
+}
+
 pub trait Interpret {
-    fn interpret(&self) -> InterpreterResult;
+    // I should try to add some trait methods that "visits" the children nodes
+    // and use those instead.
+    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult;
 }
 
 impl Interpret for SyntaxNode {
-    fn interpret(&self) -> InterpreterResult {
+    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         match self {
-            SyntaxNode::Factor(node) => node.interpret(),
-            SyntaxNode::UnaryFactor(node) => node.interpret(),
-            SyntaxNode::Term(node) => node.interpret(),
+            SyntaxNode::Factor(node) => node.interpret(context),
+            SyntaxNode::UnaryFactor(node) => node.interpret(context),
+            SyntaxNode::Term(node) => node.interpret(context),
         }
     }
 }
 
 impl Interpret for FactorNode {
-    fn interpret(&self) -> InterpreterResult {
+    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+        context.current_pos = self.pos;
+
         match self.token.value {
             TokenType::Int(int) => Ok(InterpretedType::Int(int)),
             TokenType::Float(float) => Ok(InterpretedType::Float(float)),
@@ -100,12 +122,14 @@ impl Interpret for FactorNode {
 }
 
 impl Interpret for UnaryNode {
-    fn interpret(&self) -> InterpreterResult {
+    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+        context.current_pos = self.pos;
+
         if matches!(self.op_token.value, TokenType::Operation('+')) {
-            return self.node.interpret();
+            return self.node.interpret(context);
         }
         if matches!(self.op_token.value, TokenType::Operation('-')) {
-            let result = self.node.interpret();
+            let result = self.node.interpret(context);
             if let Err(err) = result {
                 return Err(err);
             }
@@ -119,16 +143,18 @@ impl Interpret for UnaryNode {
 }
 
 impl Interpret for TermNode {
-    fn interpret(&self) -> InterpreterResult {
-        let left_result = self.left_node.interpret();
+    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+        let left_result = self.left_node.interpret(context);
         if let Err(err) = left_result {
             return Err(err);
         }
-        let right_result = self.right_node.interpret();
+        let right_result = self.right_node.interpret(context);
         if let Err(err) = right_result {
             return Err(err);
         }
 
+        // set the term position after the children have finished
+        context.current_pos = self.pos;
         let (lhs, rhs) = unsafe {
             (
                 left_result.unwrap_unchecked(),
@@ -140,7 +166,7 @@ impl Interpret for TermNode {
             TokenType::Operation('+') => add(lhs, rhs),
             TokenType::Operation('-') => subtract(lhs, rhs),
             TokenType::Operation('*') => multiply(lhs, rhs),
-            TokenType::Operation('/') => divide(lhs, rhs),
+            TokenType::Operation('/') => divide(lhs, rhs, context),
             _ => panic!("Only +,-,*,/ are allowed\nop {:?}", self.op_token),
         }
     }
@@ -227,14 +253,16 @@ fn multiply(left: InterpretedType, right: InterpretedType) -> InterpreterResult 
     panic!("Cannot multiply a non i64 or f64");
 }
 
-fn divide(left: InterpretedType, right: InterpretedType) -> InterpreterResult {
+fn divide(left: InterpretedType, right: InterpretedType, context: &ExecutionContext) -> InterpreterResult {
     if matches!(right, InterpretedType::Int(int) if int == 0)
         | matches!(right, InterpretedType::Float(float) if float == 0.0)
     {
+        let (start, end) = context.current_pos;
         return Err(InterpreterError::DivideByZero(DivideByZeroError::new(
             "The right hand side of the division expression is 0",
-            0,
-            0,
+            context.source_text.clone(),
+            start,
+            end,
             0,
         )));
     }

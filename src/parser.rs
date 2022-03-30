@@ -2,8 +2,8 @@ use std::fmt::{Display, Formatter, Result as FormatResult};
 use std::mem;
 use std::vec::IntoIter;
 
+use crate::interpreter::{Execute, ExecutionContext, Interpret, InterpreterResult};
 use crate::lexer::{Location, Token, TokenType};
-use crate::interpreter;
 
 pub enum ParseError {
     SyntaxError(IllegalSyntaxError),
@@ -68,12 +68,14 @@ impl Display for IllegalSyntaxError {
 #[derive(Debug)]
 pub struct FactorNode {
     pub token: Token,
+    pub pos: (usize, usize),
 }
 
 #[derive(Debug)]
 pub struct UnaryNode {
     pub op_token: Token,
-    pub node: Box<SyntaxNode>
+    pub node: Box<SyntaxNode>,
+    pub pos: (usize, usize),
 }
 
 #[derive(Debug)]
@@ -81,6 +83,7 @@ pub struct TermNode {
     pub op_token: Token,
     pub left_node: Box<SyntaxNode>,
     pub right_node: Box<SyntaxNode>,
+    pub pos: (usize, usize),
 }
 
 #[derive(Debug)]
@@ -90,13 +93,33 @@ pub enum SyntaxNode {
     Term(TermNode),
 }
 
-pub struct AbstractSyntaxTree {
-    inner: SyntaxNode,
+impl SyntaxNode {
+    fn get_pos(&self) -> (usize, usize) {
+        match self {
+            SyntaxNode::Factor(node) => node.pos,
+            SyntaxNode::UnaryFactor(node) => node.pos,
+            SyntaxNode::Term(node) => node.pos,
+        }
+    }
+
+    fn set_pos(&mut self, pos: (usize, usize)) {
+        match self {
+            SyntaxNode::Factor(node) => node.pos = pos,
+            SyntaxNode::UnaryFactor(node) => node.pos = pos,
+            SyntaxNode::Term(node) => node.pos = pos,
+        }
+    }
 }
 
-impl interpreter::Interpret for AbstractSyntaxTree {
-    fn interpret(&self) -> interpreter::InterpreterResult {
-        self.inner.interpret()
+pub struct AbstractSyntaxTree {
+    inner: SyntaxNode,
+    source_text: String,
+}
+
+impl Execute for AbstractSyntaxTree {
+    fn execute(&self) -> InterpreterResult {
+        let mut context = ExecutionContext::new(self.source_text.clone());
+        self.inner.interpret(&mut context)
     }
 }
 
@@ -170,36 +193,48 @@ impl<'a> Parser {
             TokenType::Operation('+') | TokenType::Operation('-') => {
                 self.advance();
                 let factor_result = self.factor();
-
                 if let Err(err) = factor_result {
-                    return Err(err)
+                    return Err(err);
                 }
 
                 let factor = unsafe { factor_result.unwrap_unchecked() };
+                let (_, end) = factor.get_pos();
+                let start = current_token.source.start.column;
+
                 Ok(SyntaxNode::UnaryFactor(UnaryNode {
                     op_token: current_token,
-                    node: Box::new(factor)
+                    node: Box::new(factor),
+                    pos: (start, end),
                 }))
-            },
+            }
             TokenType::Int(_) | TokenType::Float(_) => {
                 self.advance();
+                let pos = (
+                    current_token.source.start.column,
+                    current_token.source.end.column,
+                );
                 Ok(SyntaxNode::Factor(FactorNode {
                     token: current_token,
+                    pos: pos,
                 }))
             }
             TokenType::LParen('(') => {
+                let start = current_token.source.start.column;
                 self.advance();
+
                 let result = self.expression();
                 if let Err(err) = result {
                     return Err(err);
                 }
-                let expression = unsafe { result.unwrap_unchecked() };
+                let mut expression = unsafe { result.unwrap_unchecked() };
 
                 let token_ref = self.current_token.as_ref().unwrap();
                 let token_type = token_ref.value;
                 let location = token_ref.source;
 
                 if token_type == TokenType::RParen(')') {
+                    let end = location.end.column;
+                    expression.set_pos((start, end));
                     self.advance();
                     return Ok(expression);
                 } else {
@@ -261,10 +296,14 @@ impl<'a> Parser {
             }
             let right = unsafe { right_result.unwrap_unchecked() };
 
+            let (start, _) = left.get_pos();
+            let (_, end) = right.get_pos();
+
             left = SyntaxNode::Term(TermNode {
                 left_node: Box::new(left),
                 op_token: op_token,
                 right_node: Box::new(right),
+                pos: (start, end),
             });
         }
 
@@ -278,9 +317,10 @@ impl<'a> Parser {
         let token_location = current_token.source;
 
         match result {
-            Ok(node) if matches!(token_type, TokenType::EOF) => {
-                Ok(AbstractSyntaxTree { inner: node })
-            }
+            Ok(node) if matches!(token_type, TokenType::EOF) => Ok(AbstractSyntaxTree {
+                inner: node,
+                source_text: self.regenerate_source(),
+            }),
             Err(err) => Err(err),
             _ => {
                 self.load_debug_line();

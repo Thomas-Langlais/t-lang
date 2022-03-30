@@ -3,7 +3,7 @@ use std::mem;
 use std::vec::IntoIter;
 
 use crate::lexer::{Location, Token, TokenType};
-use crate::interpreter::{Interpret, InterpretedType};
+use crate::interpreter;
 
 pub enum ParseError {
     SyntaxError(IllegalSyntaxError),
@@ -12,7 +12,7 @@ pub enum ParseError {
 impl Display for ParseError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
         match self {
-            ParseError::SyntaxError(err) => write!(f, "{}", err),
+            ParseError::SyntaxError(err) => err.fmt(f),
         }
     }
 }
@@ -94,8 +94,8 @@ pub struct AbstractSyntaxTree {
     inner: SyntaxNode,
 }
 
-impl Interpret for AbstractSyntaxTree {
-    fn interpret(&self) -> InterpretedType {
+impl interpreter::Interpret for AbstractSyntaxTree {
+    fn interpret(&self) -> interpreter::InterpreterResult {
         self.inner.interpret()
     }
 }

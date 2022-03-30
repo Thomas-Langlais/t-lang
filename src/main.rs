@@ -29,15 +29,21 @@ fn main() {
 
 
         let mut parser = Parser::new(tokens);
-        match parser.generate_syntax_tree() {
-            Ok(ast) => {
-                print!("= {}", ast.interpret());
+        let ast_result = parser.generate_syntax_tree();
+        
+        if let Err(err) = ast_result {
+            print!("{}\n", err);
+            continue;
+        }
+
+        let ast = unsafe { ast_result.unwrap_unchecked() };
+        match ast.interpret() {
+            Ok(inter_type) => {
+                print!("= {}\n", inter_type);
             }
-            Err(msg) => {
-                print!("{}", msg);
+            Err(err) => {
+                print!("{}\n", err);
             }
         }
-        print!("\n");
-        io::stdout().flush().unwrap();
     }
 }

@@ -1,13 +1,9 @@
 use std::io::{self, BufRead, Write};
 
 // this is a form of inport in JS
-mod lexer;
-mod parser;
-mod interpreter;
-
-use lexer::Lexer;
-use parser::Parser;
-use interpreter::Execute;
+use core::lexer::Lexer;
+use core::parser::Parser;
+use core::interpreter::Execute;
 
 fn main() {
     print!("T-Lang Console\n");

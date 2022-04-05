@@ -30,7 +30,7 @@ jobs:
       working-directory: wasm
     - name: Build wasm
       working-directory: wasm
-      run: wasm-pack build
+      run: npm run deploy
     - name: Set AWS credentials
       uses: aws-actions/configure-aws-credentials@v1
       with:

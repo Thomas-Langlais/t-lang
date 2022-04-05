@@ -1,4 +1,4 @@
-import init, {run} from '../pkg/wasm';
+import init, {run} from '../pkg/tlang-wasm.js';
 
 init().then(_ => {
     document.getElementById('input').addEventListener('keyup', (e) => {

@@ -3,12 +3,12 @@
   "name": "rust-webpack-template",
   "version": "0.1.0",
   "scripts": {
-    "build": "rimraf dist pkg && webpack",
-    "start": "webpack-dev-server",
+    "deploy": "wasm-pack build --release --no-typescript -t web --out-name \"tlang-wasm\"",
+    "build": "rimraf dist && wasm-pack build -t web --out-name \"tlang-wasm\" && webpack",
+    "start": "rimraf dist && wasm-pack build -t web --out-name \"tlang-wasm\" && webpack-dev-server",
     "test": "cargo test && wasm-pack test --headless"
   },
   "devDependencies": {
-    "@wasm-tool/wasm-pack-plugin": "^1.1.0",
     "copy-webpack-plugin": "^5.0.3",
     "rimraf": "^3.0.0",
     "webpack": "^5.71.0",

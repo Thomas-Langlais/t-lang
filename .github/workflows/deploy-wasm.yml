@@ -40,4 +40,4 @@ jobs:
     - name: Copy files to the static bucket
       working-directory: wasm
       run: |
-        aws s3 cp pkg/ s3://portfolio-static/wasm
+        aws s3 cp --recursive pkg/ s3://portfolio-static/wasm

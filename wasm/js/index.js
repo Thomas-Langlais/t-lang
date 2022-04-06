@@ -1,15 +1,14 @@
-import init, {run} from '../pkg/tlang-wasm.js';
+import("../pkg/tlang-wasm")
+  .then(({ run }) => {
+    document.getElementById("input").addEventListener("keyup", (e) => {
+      if (e.key === "Enter" || e.keyCode === 13) {
+        const input = `${e.target.value}\n`;
+        const result = run(input);
 
-init().then(_ => {
-    document.getElementById('input').addEventListener('keyup', (e) => {
-        if (e.key === 'Enter' || e.keyCode === 13) {
-            const input = `${e.target.value}\n`;
+        document.getElementById("output").innerText = result;
 
-            const result = run(input);
-
-            document.getElementById('output').innerText = result;
-
-            input.value = '';
-        }
-    })
-}).catch(console.error);
+        input.value = "";
+      }
+    });
+  })
+  .catch(console.err);

@@ -3,9 +3,9 @@
   "name": "rust-webpack-template",
   "version": "0.1.0",
   "scripts": {
-    "deploy": "wasm-pack build --release --no-typescript -t web --out-name \"tlang-wasm\"",
-    "build": "rimraf dist && wasm-pack build -t web --out-name \"tlang-wasm\" && webpack",
-    "start": "rimraf dist && wasm-pack build -t web --out-name \"tlang-wasm\" && webpack-dev-server",
+    "deploy": "wasm-pack build --release --no-typescript --out-name \"tlang-wasm\" && node scripts/build.js pack",
+    "build": "rimraf dist pkg && wasm-pack build --out-name \"tlang-wasm\" && node scripts/build.js debug",
+    "start": "rimraf dist pkg && wasm-pack build --out-name \"tlang-wasm\" && webpack-dev-server --config config/debug.config.js",
     "test": "cargo test && wasm-pack test --headless"
   },
   "devDependencies": {

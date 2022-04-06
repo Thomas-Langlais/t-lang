@@ -1,7 +1,9 @@
 const path = require("path");
+const fs = require("fs");
 const CopyPlugin = require("copy-webpack-plugin");
 
-const dist = path.resolve(__dirname, "dist");
+const executingDir = fs.realpathSync(process.cwd());
+const dist = path.resolve(executingDir, "dist");
 
 module.exports = {
   mode: "development",
@@ -20,7 +22,7 @@ module.exports = {
   },
   plugins: [
     new CopyPlugin([
-      path.resolve(__dirname, "static")
+      path.resolve("static")
     ]),
   ]
 };

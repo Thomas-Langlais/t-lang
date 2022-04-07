@@ -5,7 +5,7 @@ const read = promisify(readFile);
 
 const { Octokit } = require("@octokit/rest");
 
-async function run(owner, email, repo, accessToken, filePromise) {
+async function run(owner, email, repo, accessToken, files) {
   const octokit = new Octokit({
     auth: accessToken,
     log: {
@@ -13,39 +13,6 @@ async function run(owner, email, repo, accessToken, filePromise) {
       error: console.error,
     },
   });
-
-  const pushBlobs = async (filePromise) => {
-    let files = await filePromise;
-
-    let blobResults = await Promise.all(
-      files.map(async (file) => ({
-        ...file,
-        response: await octokit.git.createBlob({
-          owner,
-          repo,
-          content: await read(file.path, { encoding: "utf8" }),
-        }),
-      }))
-    );
-
-    let blobs = blobResults.map((blob) => {
-      if (blob.response.status !== 201)
-        throw new Error(
-          `blob ${blob.path} was not created.\n${JSON.stringify(
-            blob.response
-          )}`
-        );
-      return {
-        path: blob.blobPath,
-        sha: blob.response.data.sha,
-      };
-    });
-
-    console.log(blobs);
-    return blobs;
-  };
-
-  const blobResults = pushBlobs(filePromise);
 
   const refResponse = await octokit.git.getRef({
     owner,
@@ -57,17 +24,29 @@ async function run(owner, email, repo, accessToken, filePromise) {
 
   const head = refResponse.data;
   const lastCommitSha = head.object.sha;
+  
+  files = await files;
+  const packageIndex = files.findIndex(
+    (blob) => blob.blobPath === "package.json"
+  );
+  if (packageIndex === -1)
+    throw new Error("Needs a package.json to set the tag version");
 
-  const blobs = await blobResults;
+  const package = require(files[packageIndex].path);
+  const { version } = package;
+  if (typeof version !== "string")
+    throw new Error("the package version was not supplied");
 
   const treeResponse = await octokit.git.createTree({
     owner,
     repo,
-    tree: blobs.map((blob) => ({
-      path: blob.path,
-      mode: "100644",
-      sha: blob.sha,
-    })),
+    tree: await Promise.all(
+      files.map(async (file) => ({
+        path: file.blobPath,
+        mode: "100644",
+        content: await read(file.path, { encoding: "utf8" }),
+      }))
+    ),
   });
   if (treeResponse.status !== 201)
     throw new Error(
@@ -84,7 +63,7 @@ async function run(owner, email, repo, accessToken, filePromise) {
     repo,
     parents: [lastCommitSha],
     tree: newTreeSha,
-    message: "new release commit!",
+    message: `Version release commit v${version}`,
     author: {
       name: owner,
       email: email,
@@ -108,6 +87,35 @@ async function run(owner, email, repo, accessToken, filePromise) {
   });
   if (updateRefResponse.status !== 200)
     throw new Error("could not update the 'main' branch");
+
+  const tagObjectResponse = await octokit.git.createTag({
+    owner,
+    repo,
+    tag: `v${version}`,
+    message: `tlang wasm release v${version}`,
+    type: "commit",
+    object: newCommitSha,
+    tagger: {
+      name: owner,
+      email: email,
+    },
+  });
+  if (tagObjectResponse.status !== 201)
+    throw new Error("could not create the tag object");
+
+  const tagObject = tagObjectResponse.data;
+  const tagSha = tagObject.sha;
+
+  const newTagResponse = await octokit.git.createRef({
+    owner,
+    repo,
+    ref: `refs/tags/v${version}`,
+    sha: tagSha
+  });
+  if (newTagResponse.status !== 201)
+    throw new Error("could not create tag reference");
+
+  console.log(newTagResponse.data);
 }
 
 module.exports = run;

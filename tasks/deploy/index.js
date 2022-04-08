@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
-const run = require("./run");
 
+const run = require("./run");
 const walkDir = require("./utils/walkDir");
 
 process.on("uncaughtException", (err, origin) => {
@@ -23,13 +23,19 @@ if (!fs.existsSync(package)) {
   process.exit(1);
 }
 
+// this is used to ensure all binary files (e.g. just wasm right now) use the proper encoding
+const encoding = (file) => (/\.wasm$/.test(file) ? "base64" : "utf-8");
+
 const absolutePath = `${
   path.isAbsolute(package) ? package : path.resolve(package)
 }${path.sep}`;
 const files = walkDir(absolutePath).then((files) =>
   files.map((file) => ({
     path: file,
-    blobPath: file.replace(absolutePath, ""),
+    blob: {
+      path: file.replace(absolutePath, ""),
+      encoding: encoding(file),
+    },
   }))
 );
 

@@ -1,5 +1,7 @@
-import("../pkg/tlang-wasm")
-  .then(({ run }) => {
+import init, { run } from "../pkg/tlang-wasm";
+
+init()
+  .then(() => {
     document.getElementById("input").addEventListener("keyup", (e) => {
       if (e.key === "Enter" || e.keyCode === 13) {
         const input = `${e.target.value}\n`;
@@ -7,7 +9,7 @@ import("../pkg/tlang-wasm")
 
         document.getElementById("output").innerText = result;
 
-        input.value = "";
+        e.target = "";
       }
     });
   })

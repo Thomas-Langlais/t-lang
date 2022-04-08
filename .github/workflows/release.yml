@@ -45,9 +45,11 @@ jobs:
     - name: Build release wasm
       working-directory: wasm
       run: npm run release
-    - name: Commit the release
-      run: node tasks/deploy/index.js wasm/pkg
-      env:
-        ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
-        REPO: ${{ github.event.inputs.repo }}
+    - name: list the pkg
+      run: ls -hl wasm/pkg
+    # - name: Commit the release
+    #   run: node tasks/deploy/index.js wasm/pkg
+    #   env:
+    #     ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+    #     REPO: ${{ github.event.inputs.repo }}
 

@@ -31,6 +31,7 @@ jobs:
           ${{ runner.os }}-build-
           ${{ runner.os }}-
     - name: Cache rust binaries
+      id: rust-cache
       uses: actions/cache@v3
       with:
         path: |
@@ -41,6 +42,7 @@ jobs:
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Install wasm-pack
+      if: steps.rust-cache.outputs.cache-hit != 'true'
       run: cargo install wasm-pack
     - run: npm install
     - name: Build release wasm

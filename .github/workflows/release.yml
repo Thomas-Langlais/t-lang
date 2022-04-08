@@ -1,6 +1,12 @@
-name: Deploy wasm to cloud
+name: Deploy release build
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: 'The repo to push to'
+        required: true
+        default: tlang-wasm
 
 env:
   CARGO_TERM_COLOR: always
@@ -27,17 +33,12 @@ jobs:
           ${{ runner.os }}-build-
           ${{ runner.os }}-
     - run: npm install
+    - name: Build release wasm
       working-directory: wasm
-    - name: Build wasm
-      working-directory: wasm
-      run: npm run deploy
-    - name: Set AWS credentials
-      uses: aws-actions/configure-aws-credentials@v1
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ca-central-1
-    - name: Copy files to the static bucket
-      working-directory: wasm
-      run: |
-        aws s3 cp --recursive dist/ s3://portfolio-static/wasm
+      run: npm run release
+    - name: Commit the release
+      run: node tasks/deploy/index.js wasm/pkg
+      env:
+        ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+        REPO: ${{ github.event.inputs.repo }}
+

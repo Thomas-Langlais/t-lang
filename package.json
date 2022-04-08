@@ -1,0 +1,18 @@
+{
+  "name": "tlang-workspace",
+  "version": "1.0.0",
+  "description": "The workspace package for managing tlang",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Thomas-Langlais/t-lang.git"
+  },
+  "author": "Thomas L'Anglais",
+  "bugs": {
+    "url": "https://github.com/Thomas-Langlais/t-lang/issues"
+  },
+  "homepage": "https://github.com/Thomas-Langlais/t-lang#readme",
+  "workspaces": [
+    "wasm",
+    "tasks/deploy"
+  ]
+}

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "deploy": "wasm-pack build --release --no-typescript --out-name \"tlang-wasm\" && node scripts/build.js pack",
-    "release": "wasm-pack build --release --out-name \"tlang-wasm\"",
+    "release": "wasm-pack build --release --target web --out-name \"tlang-wasm\"",
     "build": "rimraf dist pkg && wasm-pack build --out-name \"tlang-wasm\" && node scripts/build.js debug",
     "start": "rimraf dist pkg && wasm-pack build --out-name \"tlang-wasm\" && webpack-dev-server --config config/debug.config.js",
     "test": "cargo test && wasm-pack test --headless"

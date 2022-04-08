@@ -16,8 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - name: Install wasm-pack
-      run: cargo install wasm-pack
     - name: Setup Node.js environment
       uses: actions/setup-node@v3.1.0
     - name: Cache node modules
@@ -32,7 +30,8 @@ jobs:
           ${{ runner.os }}-build-${{ env.cache-name }}-
           ${{ runner.os }}-build-
           ${{ runner.os }}-
-    - uses: actions/cache@v3
+    - name: Cache rust binaries
+      uses: actions/cache@v3
       with:
         path: |
           ~/.cargo/bin/
@@ -41,6 +40,8 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Install wasm-pack
+      run: cargo install wasm-pack
     - run: npm install
     - name: Build release wasm
       working-directory: wasm

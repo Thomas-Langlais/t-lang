@@ -57,4 +57,7 @@ if (!repo) {
   process.exit(1);
 }
 
-run(user, email, repo, token, files);
+run(user, email, repo, token, files).catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

@@ -1,10 +1,10 @@
-use std::fmt;
+use std::fmt::{self, Result as FormatResult};
 use std::string::ToString;
 
 // Tokens structures
 pub struct Token {
     pub value: TokenType,
-    pub source: Location
+    pub source: Location,
 }
 
 impl fmt::Debug for Token {
@@ -20,7 +20,7 @@ pub enum TokenType {
     Operation(char),
     Int(i64),
     Float(f64),
-    EOF
+    EOF,
 }
 
 impl ToString for TokenType {
@@ -39,7 +39,7 @@ impl ToString for TokenType {
 #[derive(Clone, Copy)]
 pub struct Location {
     pub start: Position,
-    pub end: Position
+    pub end: Position,
 }
 
 #[derive(Copy, Clone)]
@@ -48,19 +48,60 @@ pub struct Position {
     pub line: usize,
 }
 
+#[derive(Clone)]
+pub struct LexerError {
+    pub name: String,
+    pub details: String,
+    pub source: String,
+    pub position: Position,
+}
+
+impl fmt::Display for LexerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> FormatResult {
+        let line_header = format!("line {line}: ", line = self.position.line + 1);
+
+        let underline = (0..self.position.column + line_header.len())
+            .map(|_| ' ')
+            .chain((0..1).map(|_| '^'))
+            .collect::<String>();
+
+        let source = &self.source;
+
+        write!(
+            f,
+            "{name} - {details}\n\
+            {line_header}{source}\n\
+            {underline}",
+            name = self.name,
+            details = self.details
+        )
+    }
+}
+
+impl LexerError {
+    pub fn new(name: &str, details: String, position: Position, source: String) -> LexerError {
+        LexerError {
+            name: name.to_string(),
+            details,
+            source,
+            position,
+        }
+    }
+}
+
 /* lifetimes are important here because we need to define
 that the scope of the readable is where the methods are being called. */
 pub struct Lexer<'a> {
     buffer: &'a Vec<u8>,
     pos: usize,
     byte: Option<&'a u8>,
-    src: Position
+    src: Position,
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Token;
+    type Item = Result<Token, LexerError>;
 
-    fn next(&mut self) -> Option<Token> {
+    fn next(&mut self) -> Option<Result<Token, LexerError>> {
         // return the token generated from the loop
         // loop and return the next token we make
         return loop {
@@ -72,81 +113,81 @@ impl<'a> Iterator for Lexer<'a> {
                 }
                 Some(b'+') => {
                     // create the token
-                    let token = Some(Token {
+                    let token = Token {
                         value: TokenType::Operation('+'),
                         source: Location {
                             start: self.src,
-                            end: self.src
-                        }
-                    });
+                            end: self.src,
+                        },
+                    };
                     // advance the iterator context to the next char
                     self.advance();
-                    break token;
+                    break Some(Ok(token));
                 }
                 Some(b'-') => {
                     // create the token
-                    let token = Some(Token {
+                    let token = Token {
                         value: TokenType::Operation('-'),
                         source: Location {
                             start: self.src,
-                            end: self.src
-                        }
-                    });
+                            end: self.src,
+                        },
+                    };
                     // advance the iterator context to the next char
                     self.advance();
-                    break token;
+                    break Some(Ok(token));
                 }
                 Some(b'*') => {
                     // create the token
-                    let token = Some(Token {
+                    let token = Token {
                         value: TokenType::Operation('*'),
                         source: Location {
                             start: self.src,
-                            end: self.src
-                        }
-                    });
+                            end: self.src,
+                        },
+                    };
                     // advance the iterator context to the next char
                     self.advance();
-                    break token;
+                    break Some(Ok(token));
                 }
                 Some(b'/') => {
                     // create the token
-                    let token = Some(Token {
+                    let token = Token {
                         value: TokenType::Operation('/'),
                         source: Location {
                             start: self.src,
-                            end: self.src
-                        }
-                    });
+                            end: self.src,
+                        },
+                    };
                     // advance the iterator context to the next char
                     self.advance();
-                    break token;
+                    break Some(Ok(token));
                 }
                 Some(b'(') => {
                     // create the token
-                    let token = Some(Token {
+                    let token = Token {
                         value: TokenType::LParen('('),
                         source: Location {
                             start: self.src,
-                            end: self.src
-                        }
-                    });
+                            end: self.src,
+                        },
+                    };
                     // advance the iterator context to the next char
                     self.advance();
-                    break token;
+                    break Some(Ok(token));
                 }
                 Some(b')') => {
                     // create the token
-                    let token = Some(Token {
+                    let token = Token {
                         value: TokenType::RParen(')'),
                         source: Location {
                             start: self.src,
-                            end: self.src
-                        }
-                    });
+                            end: self.src,
+                        },
+                    };
                     // advance the iterator context to the next char
                     self.advance();
-                    break token;
+                    break Some(Ok(token));
                 }
                 // this is empty as we don't need to do any parsing on white spaces or tabs
                 Some(b' ') | Some(b'\t') => {
@@ -155,20 +196,29 @@ impl<'a> Iterator for Lexer<'a> {
                 }
                 Some(b'\n') => {
                     // handle a line change for when we hold debug data
-                    break Some(Token {
+                    break Some(Ok(Token {
                         value: TokenType::EOF,
                         source: Location {
                             start: self.src,
-                            end: self.src
-                        }
-                    });
+                            end: self.src,
+                        },
+                    }));
                 }
-                _ => {
-                    panic!("ERROR");
-                    // return Err(format!("unexpected char {}", b))
+                Some(byte) => {
+                    break Some(Err(LexerError::new(
+                        "Illegal char error",
+                        (*byte as char).to_string(),
+                        self.src,
+                        self.buffer
+                            .iter()
+                            .map(|b| *b as char)
+                            .take_while(|c| *c != '\n')
+                            .collect(),
+                    )));
                 }
+                _ => break None,
             }
-        }
+        };
     }
 }
 
@@ -178,27 +228,29 @@ impl<'a> Lexer<'a> {
             buffer: buf,
             pos: 0,
             byte: buf.get(0),
-            src: Position {
-                column: 0,
-                line: 0
-            }
+            src: Position { column: 0, line: 0 },
         }
     }
 
-    pub fn parse_tokens(&mut self) -> Vec<Token> {
+    pub fn parse_tokens(&mut self) -> Result<Vec<Token>, LexerError> {
         let mut tokens = vec![];
 
-        while let Some(token) = self.next() {
-            let token_type = token.value;
-            tokens.push(token);
-            if let TokenType::EOF = token_type {
-                break;
+        while let Some(result_token) = self.next() {
+            match result_token {
+                Ok(token) => {
+                    let token_type = token.value;
+                    tokens.push(token);
+                    if let TokenType::EOF = token_type {
+                        break;
+                    }
+                }
+                Err(err) => return Err(err),
             }
         }
 
-        tokens
+        Ok(tokens)
     }
-    
+
     // update the lexer by setting the byte and
     // new position
     fn advance(&mut self) {
@@ -208,10 +260,10 @@ impl<'a> Lexer<'a> {
     }
 
     // generic number parser, it will out put either a int or float
-    fn parse_number(&mut self, starting_position: Position) -> Option<Token> {
+    fn parse_number(&mut self, starting_position: Position) -> Option<Result<Token, LexerError>> {
         // starting number
         let mut number = 0i64;
-        
+
         loop {
             // go to the next byte
             match self.byte {
@@ -235,11 +287,11 @@ impl<'a> Lexer<'a> {
                             end: Position {
                                 line: self.src.line,
                                 column: self.src.column - 1,
-                            }
-                        }
+                            },
+                        },
                     };
                     // return the token
-                    return Some(token);
+                    return Some(Ok(token));
                 }
                 None => {
                     return None;
@@ -249,12 +301,16 @@ impl<'a> Lexer<'a> {
     }
 
     // parse the number into a float token
-    fn parse_float(&mut self, number: i64, starting_position: Position) -> Option<Token> {
+    fn parse_float(
+        &mut self,
+        number: i64,
+        starting_position: Position,
+    ) -> Option<Result<Token, LexerError>> {
         // the decimal point
         let mut decimal_point: f64 = 0.0;
         // starting point for the power, it updates t o10 to react to the first decimal point digit
         let mut power: f64 = 1.0;
-        
+
         loop {
             match self.byte {
                 Some(b @ b'0'..=b'9') => {
@@ -279,11 +335,11 @@ impl<'a> Lexer<'a> {
                             end: Position {
                                 line: self.src.line,
                                 column: self.src.column - 1,
-                            }
-                        }
+                            },
+                        },
                     };
                     // return the token
-                    return Some(token);
+                    return Some(Ok(token));
                 }
                 None => {
                     return None;

@@ -21,8 +21,13 @@ fn main() {
 
         // set the io handle for reading the stream
         let mut reader = Lexer::new(&buffer);
-        let tokens = reader.parse_tokens();
-
+        let tokens_result = reader.parse_tokens();
+        
+        if let Err(err) = tokens_result {
+            print!("{}\n", err);
+            continue;
+        }
+        let tokens = unsafe { tokens_result.unwrap_unchecked() };
 
         let mut parser = Parser::new(tokens);
         let ast_result = parser.generate_syntax_tree();

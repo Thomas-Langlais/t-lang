@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FormatResult};
 
 use crate::lexer::TokenType;
@@ -16,15 +17,47 @@ pub struct DivideByZeroError {
     start: usize,
     end: usize,
 }
-
+pub struct SymbolNotFoundError {
+    name: String,
+    details: String,
+    source: String,
+    line: usize,
+    start: usize,
+    end: usize,
+}
 pub enum InterpreterError {
     DivideByZero(DivideByZeroError),
+    SymbolNotFound(SymbolNotFoundError)
 }
 
 impl DivideByZeroError {
-    fn new(details: &str, source: String, start: usize, end: usize, line: usize) -> DivideByZeroError {
+    fn new(
+        details: &str,
+        source: String,
+        start: usize,
+        end: usize,
+        line: usize,
+    ) -> DivideByZeroError {
         DivideByZeroError {
             name: String::from("Divide by zero"),
+            details: String::from(details),
+            source: source,
+            line,
+            start,
+            end,
+        }
+    }
+}
+impl SymbolNotFoundError {
+    fn new(
+        details: &str,
+        source: String,
+        start: usize,
+        end: usize,
+        line: usize,
+    ) -> SymbolNotFoundError {
+        SymbolNotFoundError {
+            name: String::from("Symbol not found"),
             details: String::from(details),
             source: source,
             line,
@@ -49,6 +82,7 @@ impl Display for InterpreterError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
         match self {
             InterpreterError::DivideByZero(err) => err.fmt(f),
+            InterpreterError::SymbolNotFound(err) => err.fmt(f),
         }
     }
 }
@@ -74,18 +108,86 @@ impl Display for DivideByZeroError {
         )
     }
 }
+impl Display for SymbolNotFoundError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
+        let line_header = format!("line {line}: ", line = self.line + 1);
 
-pub struct ExecutionContext {
-    source_text: String,
-    current_pos: (usize, usize), 
+        let underline = (0..self.start + line_header.len())
+            .map(|_| ' ')
+            .chain((self.start..=self.end).map(|_| '^'))
+            .collect::<String>();
+
+        let source = &self.source;
+
+        write!(
+            f,
+            "{name} - {details}\n\
+            {line_header}{source}\n\
+            {underline}",
+            name = self.name,
+            details = self.details
+        )
+    }
 }
 
-impl ExecutionContext {
-    pub fn new(source_text: String) -> ExecutionContext {
+pub enum SymbolValue {
+    Int(i64),
+    Float(f64),
+}
+
+pub struct SymbolTable<'a> {
+    symbols: HashMap<&'a str, SymbolValue>,
+    parent_context: Option<Box<ExecutionContext<'a>>>,
+}
+
+pub struct ExecutionContext<'a> {
+    source_text: String,
+    current_pos: (usize, usize),
+    symbol_table: &'a SymbolTable<'a>,
+    parent_context: Option<Box<ExecutionContext<'a>>>,
+}
+
+impl<'a> ExecutionContext<'a> {
+    pub fn new(source_text: String, symbol_table: &'a SymbolTable<'a>) -> ExecutionContext<'a> {
         ExecutionContext {
             source_text,
+            symbol_table,
+            parent_context: None,
             current_pos: (0, 0),
         }
+    }
+}
+
+impl<'a> SymbolTable<'a> {
+    pub fn new(symbols: HashMap<&'a str, SymbolValue>) -> Self {
+        SymbolTable {
+            symbols,
+            parent_context: None,
+        }
+    }
+
+    pub fn get(&self, identifier: &'a str) -> Option<&SymbolValue> {
+        if let Some(value) = self.symbols.get(identifier) {
+            return Some(value);
+        }
+
+        let mut parent_context = &self.parent_context;
+        while let Some(parent) = parent_context {
+            if let Some(value) = parent.symbol_table.symbols.get(identifier) {
+                return Some(value);
+            }
+            parent_context = &parent.parent_context;
+        }
+
+        None
+    }
+
+    pub fn set(&mut self, identifier: &'a str, value: SymbolValue) {
+        self.symbols.insert(identifier, value);
+    }
+
+    pub fn remove(&mut self, identifier: &'a str) {
+        self.symbols.remove(identifier);
     }
 }
 
@@ -108,7 +210,18 @@ impl Interpret for SyntaxNode {
 
 impl Interpret for VariableNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
-        todo!("implement variable syntax node interpret")
+        context.current_pos = self.pos;
+
+        match &self.identifier_token.value {
+            TokenType::Identifier(identifier) => {
+                if self.assign {
+                    todo!("implement variable assign interpret");
+                } else {
+                    todo!("implement variable get interpret");
+                }
+            }
+            _ => panic!("A variable node can only have an identifier token"),
+        }
     }
 }
 
@@ -256,7 +369,11 @@ fn multiply(left: InterpretedType, right: InterpretedType) -> InterpreterResult 
     panic!("Cannot multiply a non i64 or f64");
 }
 
-fn divide(left: InterpretedType, right: InterpretedType, context: &ExecutionContext) -> InterpreterResult {
+fn divide(
+    left: InterpretedType,
+    right: InterpretedType,
+    context: &ExecutionContext,
+) -> InterpreterResult {
     if matches!(right, InterpretedType::Int(int) if int == 0)
         | matches!(right, InterpretedType::Float(float) if float == 0.0)
     {

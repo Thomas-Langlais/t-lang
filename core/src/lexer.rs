@@ -125,75 +125,10 @@ impl<'a> Iterator for Lexer<'a> {
                     // implement here.
                     break self.parse_number(self.src);
                 }
-                Some(b'+') => {
+                Some(op @ (b'+' | b'-' | b'*' | b'/' | b'=')) => {
                     // create the token
                     let token = Token {
-                        value: TokenType::Operation('+'),
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
-                    };
-                    // advance the iterator context to the next char
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(b'-') => {
-                    // create the token
-                    let token = Token {
-                        value: TokenType::Operation('-'),
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
-                    };
-                    // advance the iterator context to the next char
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(b'*') => {
-                    // create the token
-                    let token = Token {
-                        value: TokenType::Operation('*'),
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
-                    };
-                    // advance the iterator context to the next char
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(b'/') => {
-                    // create the token
-                    let token = Token {
-                        value: TokenType::Operation('/'),
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
-                    };
-                    // advance the iterator context to the next char
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(b'(') => {
-                    // create the token
-                    let token = Token {
-                        value: TokenType::LParen('('),
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
-                    };
-                    // advance the iterator context to the next char
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(b')') => {
-                    // create the token
-                    let token = Token {
-                        value: TokenType::RParen(')'),
+                        value: TokenType::Operation(*op as char),
                         source: Location {
                             start: self.src,
                             end: self.src,
@@ -297,7 +232,7 @@ impl<'a> Lexer<'a> {
                                     end: Position {
                                         column: self.src.column - 1,
                                         ..self.src
-                                    }
+                                    },
                                 },
                             }
                         } else {
@@ -310,7 +245,7 @@ impl<'a> Lexer<'a> {
                                     end: Position {
                                         column: self.src.column - 1,
                                         ..self.src
-                                    }
+                                    },
                                 },
                             }
                         }

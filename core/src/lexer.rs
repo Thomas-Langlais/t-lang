@@ -1,6 +1,11 @@
 use std::fmt::{self, Result as FormatResult};
 use std::string::ToString;
 
+// statics
+static KEYWORDS: &[&str] = &[
+    "let"
+];
+
 // Tokens structures
 pub struct Token {
     pub value: TokenType,
@@ -15,6 +20,7 @@ impl fmt::Debug for Token {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenType {
+    Identifier(String),
     LParen(char),
     RParen(char),
     Operation(char),

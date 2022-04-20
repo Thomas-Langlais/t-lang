@@ -229,10 +229,10 @@ impl<'a> Parser {
                 let mut expression = unsafe { result.unwrap_unchecked() };
 
                 let token_ref = self.current_token.as_ref().unwrap();
-                let token_type = token_ref.value;
+                let token_type = &token_ref.value;
                 let location = token_ref.source;
 
-                if token_type == TokenType::RParen(')') {
+                if token_type == &TokenType::RParen(')') {
                     let end = location.end.column;
                     expression.set_pos((start, end));
                     self.advance();
@@ -313,11 +313,11 @@ impl<'a> Parser {
     pub fn generate_syntax_tree(&mut self) -> ParseResult {
         let result = self.expression();
         let current_token = self.current_token.as_ref().unwrap();
-        let token_type = current_token.value;
+        let token_type = &current_token.value;
         let token_location = current_token.source;
 
         match result {
-            Ok(node) if matches!(token_type, TokenType::EOF) => Ok(AbstractSyntaxTree {
+            Ok(node) if matches!(token_type, &TokenType::EOF) => Ok(AbstractSyntaxTree {
                 inner: node,
                 source_text: self.regenerate_source(),
             }),

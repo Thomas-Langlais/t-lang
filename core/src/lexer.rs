@@ -2,9 +2,7 @@ use std::fmt::{self, Result as FormatResult};
 use std::string::ToString;
 
 // statics
-static KEYWORDS: &[&str] = &[
-    "let"
-];
+static KEYWORDS: &[&str] = &["let"];
 
 // Tokens structures
 pub struct Token {
@@ -18,7 +16,7 @@ impl fmt::Debug for Token {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TokenType {
     Identifier(String),
     LParen(char),
@@ -32,6 +30,7 @@ pub enum TokenType {
 impl ToString for TokenType {
     fn to_string(&self) -> String {
         match self {
+            TokenType::Identifier(identifier) => identifier.to_string(),
             TokenType::LParen(lp) => lp.to_string(),
             TokenType::RParen(rp) => rp.to_string(),
             TokenType::Operation(op) => op.to_string(),
@@ -244,9 +243,8 @@ impl<'a> Lexer<'a> {
         while let Some(result_token) = self.next() {
             match result_token {
                 Ok(token) => {
-                    let token_type = token.value;
                     tokens.push(token);
-                    if let TokenType::EOF = token_type {
+                    if tokens.last().unwrap().value == TokenType::EOF {
                         break;
                     }
                 }

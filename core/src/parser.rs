@@ -66,6 +66,13 @@ impl Display for IllegalSyntaxError {
 }
 
 #[derive(Debug)]
+pub struct VariableNode {
+    pub token: Token,
+    pub assign: bool,
+    pub pos: (usize, usize)
+}
+
+#[derive(Debug)]
 pub struct FactorNode {
     pub token: Token,
     pub pos: (usize, usize),
@@ -88,6 +95,7 @@ pub struct TermNode {
 
 #[derive(Debug)]
 pub enum SyntaxNode {
+    Variable(VariableNode),
     Factor(FactorNode),
     UnaryFactor(UnaryNode),
     Term(TermNode),
@@ -96,17 +104,19 @@ pub enum SyntaxNode {
 impl SyntaxNode {
     fn get_pos(&self) -> (usize, usize) {
         match self {
-            SyntaxNode::Factor(node) => node.pos,
-            SyntaxNode::UnaryFactor(node) => node.pos,
-            SyntaxNode::Term(node) => node.pos,
+            Self::Variable(node) => node.pos,
+            Self::Factor(node) => node.pos,
+            Self::UnaryFactor(node) => node.pos,
+            Self::Term(node) => node.pos,
         }
     }
 
     fn set_pos(&mut self, pos: (usize, usize)) {
         match self {
-            SyntaxNode::Factor(node) => node.pos = pos,
-            SyntaxNode::UnaryFactor(node) => node.pos = pos,
-            SyntaxNode::Term(node) => node.pos = pos,
+            Self::Variable(node) => node.pos = pos,
+            Self::Factor(node) => node.pos = pos,
+            Self::UnaryFactor(node) => node.pos = pos,
+            Self::Term(node) => node.pos = pos,
         }
     }
 }
@@ -186,6 +196,8 @@ impl<'a> Parser {
      * helper functions for parsing grammar nodes into the stacks
      */
 
+    /// factor = atom
+    ///        = (PLUS|MINUS) factor
     fn factor(&mut self) -> InternalParseResult {
         let current_token = mem::replace(&mut self.current_token, None).unwrap();
 
@@ -261,11 +273,20 @@ impl<'a> Parser {
         }
     }
 
+    /// atom = INT|FLOAT|IDENTIFIER
+    ///      = LParen expression RParen
+    fn atom(&mut self) -> InternalParseResult {
+        todo!("not implemented");
+    }
+
+    /// term = factor (MUL|DIV factor)*
     fn term(&mut self) -> InternalParseResult {
         let func = |parser: &mut Parser| parser.factor();
         self.bin_op(func, &TERM_OPS)
     }
 
+    /// expression = KW:LET IDENTIFIER EQ expression 
+    ///            = term (PLUS|MINUS term)*
     fn expression(&mut self) -> InternalParseResult {
         let func = |parser: &mut Parser| parser.term();
         self.bin_op(func, &EXPRESSION_OPS)

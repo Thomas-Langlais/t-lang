@@ -3,7 +3,7 @@ use std::io::{self, BufRead, Write};
 // this is a form of inport in JS
 use core::lexer::Lexer;
 use core::parser::Parser;
-use core::interpreter::Execute;
+use core::interpreter::{ExecutionContext, Interpret};
 
 fn main() {
     print!("T-Lang Console\n");
@@ -38,7 +38,8 @@ fn main() {
         }
 
         let ast = unsafe { ast_result.unwrap_unchecked() };
-        match ast.execute() {
+        let mut context = ExecutionContext::new(String::from_utf8(buffer.to_vec()).unwrap());
+        match ast.interpret(&mut context) {
             Ok(inter_type) => {
                 print!("= {}\n", inter_type);
             }

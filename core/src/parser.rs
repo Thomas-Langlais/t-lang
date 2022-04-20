@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter, Result as FormatResult, Debug};
 use std::mem;
 use std::vec::IntoIter;
 
-use crate::interpreter::{Execute, ExecutionContext, Interpret, InterpreterResult};
+use crate::interpreter::{Interpret, InterpreterResult, ExecutionContext};
 use crate::lexer::{Location, Token, TokenType};
 
 pub enum ParseError {
@@ -124,7 +124,6 @@ impl SyntaxNode {
 
 pub struct AbstractSyntaxTree {
     inner: SyntaxNode,
-    source_text: String,
 }
 
 impl Debug for AbstractSyntaxTree {
@@ -133,10 +132,9 @@ impl Debug for AbstractSyntaxTree {
     }
 }
 
-impl Execute for AbstractSyntaxTree {
-    fn execute(&self) -> InterpreterResult {
-        let mut context = ExecutionContext::new(self.source_text.clone());
-        self.inner.interpret(&mut context)
+impl Interpret for AbstractSyntaxTree {
+    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+        self.inner.interpret(context)
     }
 }
 
@@ -442,7 +440,6 @@ impl<'a> Parser {
         match result {
             Ok(node) if matches!(token_type, &TokenType::EOF) => Ok(AbstractSyntaxTree {
                 inner: node,
-                source_text: self.regenerate_source(),
             }),
             Err(err) => Err(err),
             _ => {

@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter, Result as FormatResult};
 
 use crate::lexer::TokenType;
-use crate::parser::{FactorNode, SyntaxNode, TermNode, UnaryNode};
+use crate::parser::{FactorNode, SyntaxNode, TermNode, UnaryNode, VariableNode};
 
 pub enum InterpretedType {
     Float(f64),
@@ -89,10 +89,6 @@ impl ExecutionContext {
     }
 }
 
-pub trait Execute {
-    fn execute(&self) -> InterpreterResult;
-}
-
 pub trait Interpret {
     // I should try to add some trait methods that "visits" the children nodes
     // and use those instead.
@@ -102,11 +98,17 @@ pub trait Interpret {
 impl Interpret for SyntaxNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         match self {
-            Self::Variable(node) => todo!("implement variable syntax node interpret"),
+            Self::Variable(node) => node.interpret(context),
             Self::Factor(node) => node.interpret(context),
             Self::UnaryFactor(node) => node.interpret(context),
             Self::Term(node) => node.interpret(context),
         }
+    }
+}
+
+impl Interpret for VariableNode {
+    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+        todo!("implement variable syntax node interpret")
     }
 }
 

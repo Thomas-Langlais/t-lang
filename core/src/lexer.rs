@@ -14,8 +14,8 @@ impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "{:?}: {}..={}",
-            self.value, self.source.start.column, self.source.end.column
+            "{:#?}",
+            self.value
         )
     }
 }

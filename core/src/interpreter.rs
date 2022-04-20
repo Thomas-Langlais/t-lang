@@ -102,9 +102,10 @@ pub trait Interpret {
 impl Interpret for SyntaxNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         match self {
-            SyntaxNode::Factor(node) => node.interpret(context),
-            SyntaxNode::UnaryFactor(node) => node.interpret(context),
-            SyntaxNode::Term(node) => node.interpret(context),
+            Self::Variable(node) => todo!("implement variable syntax node interpret"),
+            Self::Factor(node) => node.interpret(context),
+            Self::UnaryFactor(node) => node.interpret(context),
+            Self::Term(node) => node.interpret(context),
         }
     }
 }

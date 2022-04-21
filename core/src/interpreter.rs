@@ -27,7 +27,7 @@ pub struct SymbolNotFoundError {
 }
 pub enum InterpreterError {
     DivideByZero(DivideByZeroError),
-    SymbolNotFound(SymbolNotFoundError)
+    SymbolNotFound(SymbolNotFoundError),
 }
 
 impl DivideByZeroError {
@@ -130,25 +130,26 @@ impl Display for SymbolNotFoundError {
     }
 }
 
+#[derive(Debug)]
 pub enum SymbolValue {
     Int(i64),
     Float(f64),
 }
 
-pub struct SymbolTable<'a> {
-    symbols: HashMap<&'a str, SymbolValue>,
-    parent_context: Option<Box<ExecutionContext<'a>>>,
+pub struct SymbolTable {
+    pub symbols: HashMap<String, SymbolValue>,
+    parent_context: Option<Box<ExecutionContext>>,
 }
 
-pub struct ExecutionContext<'a> {
+pub struct ExecutionContext {
     source_text: String,
     current_pos: (usize, usize),
-    symbol_table: &'a SymbolTable<'a>,
-    parent_context: Option<Box<ExecutionContext<'a>>>,
+    pub symbol_table: Box<SymbolTable>,
+    parent_context: Option<Box<ExecutionContext>>,
 }
 
-impl<'a> ExecutionContext<'a> {
-    pub fn new(source_text: String, symbol_table: &'a SymbolTable<'a>) -> ExecutionContext<'a> {
+impl ExecutionContext {
+    pub fn new(source_text: String, symbol_table: Box<SymbolTable>) -> ExecutionContext {
         ExecutionContext {
             source_text,
             symbol_table,
@@ -158,15 +159,15 @@ impl<'a> ExecutionContext<'a> {
     }
 }
 
-impl<'a> SymbolTable<'a> {
-    pub fn new(symbols: HashMap<&'a str, SymbolValue>) -> Self {
+impl SymbolTable {
+    pub fn new(symbols: HashMap<String, SymbolValue>) -> Self {
         SymbolTable {
             symbols,
             parent_context: None,
         }
     }
 
-    pub fn get(&self, identifier: &'a str) -> Option<&SymbolValue> {
+    pub fn get(&self, identifier: &str) -> Option<&SymbolValue> {
         if let Some(value) = self.symbols.get(identifier) {
             return Some(value);
         }
@@ -182,11 +183,11 @@ impl<'a> SymbolTable<'a> {
         None
     }
 
-    pub fn set(&mut self, identifier: &'a str, value: SymbolValue) {
-        self.symbols.insert(identifier, value);
+    pub fn set(&mut self, identifier: &str, value: SymbolValue) {
+        self.symbols.insert(identifier.to_string(), value);
     }
 
-    pub fn remove(&mut self, identifier: &'a str) {
+    pub fn remove(&mut self, identifier: &str) {
         self.symbols.remove(identifier);
     }
 }
@@ -210,14 +211,47 @@ impl Interpret for SyntaxNode {
 
 impl Interpret for VariableNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
-        context.current_pos = self.pos;
-
         match &self.identifier_token.value {
             TokenType::Identifier(identifier) => {
                 if self.assign {
-                    todo!("implement variable assign interpret");
+                    let expression = unsafe { self.expression.as_ref().unwrap_unchecked() };
+                    let expression_result = expression.interpret(context);
+                    if let Err(err) = expression_result {
+                        return Err(err);
+                    }
+
+                    let result = unsafe { expression_result.unwrap_unchecked() };
+                    context.current_pos = self.pos;
+
+                    context.symbol_table.set(
+                        identifier,
+                        match result {
+                            InterpretedType::Int(int) => SymbolValue::Int(int),
+                            InterpretedType::Float(float) => SymbolValue::Float(float),
+                        },
+                    );
+
+                    Ok(result)
                 } else {
-                    todo!("implement variable get interpret");
+                    context.current_pos = self.pos;
+                    let value_result = context.symbol_table.get(identifier);
+                    if value_result.is_none() {
+                        let (start, end) = context.current_pos;
+                        return Err(InterpreterError::SymbolNotFound(SymbolNotFoundError::new(
+                            "The variable does not exist in the current context",
+                            context.source_text.clone(),
+                            start,
+                            end,
+                            0,
+                        )));
+                    }
+
+                    let value = unsafe { value_result.unwrap_unchecked() };
+                    match value {
+                        SymbolValue::Int(int) => Ok(InterpretedType::Int(*int)),
+                        SymbolValue::Float(float) => Ok(InterpretedType::Float(*float)),
+                    }
+                    // todo!("implement variable get interpret");
                 }
             }
             _ => panic!("A variable node can only have an identifier token"),

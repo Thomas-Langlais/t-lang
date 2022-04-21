@@ -40,10 +40,11 @@ fn main() {
             continue;
         }
 
+        let global_symbol_table = SymbolTable::new(HashMap::new());
         let ast = unsafe { ast_result.unwrap_unchecked() };
         let mut context = ExecutionContext::new(
             String::from_utf8(buffer.to_vec()).unwrap(),
-            &global_symbol_table,
+            Box::new(global_symbol_table),
         );
         match ast.interpret(&mut context) {
             Ok(inter_type) => {
@@ -53,5 +54,7 @@ fn main() {
                 print!("{}\n", err);
             }
         }
+
+        println!("{:#?}", context.symbol_table.symbols);
     }
 }

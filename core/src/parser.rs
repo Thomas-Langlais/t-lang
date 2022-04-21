@@ -132,7 +132,7 @@ impl Debug for AbstractSyntaxTree {
     }
 }
 
-impl Interpret for AbstractSyntaxTree {
+impl<'a> Interpret<'a> for AbstractSyntaxTree {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         self.inner.interpret(context)
     }
@@ -346,14 +346,12 @@ impl<'a> Parser {
                     }
                 };
 
-                let eq_token = match self.current_token {
+                match self.current_token {
                     Some(Token {
                         value: TokenType::Operation('='),
                         ..
                     }) => {
-                        let token = mem::replace(&mut self.current_token, None).unwrap();
                         self.advance();
-                        token
                     }
                     _ => {
                         let location = match &self.current_token {

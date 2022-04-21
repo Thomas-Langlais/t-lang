@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FormatResult};
 
@@ -130,26 +131,26 @@ impl Display for SymbolNotFoundError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum SymbolValue {
     Int(i64),
     Float(f64),
 }
 
-pub struct SymbolTable {
-    pub symbols: HashMap<String, SymbolValue>,
-    parent_context: Option<Box<ExecutionContext>>,
+pub struct SymbolTable<'a> {
+    pub symbols: RefCell<HashMap<String, SymbolValue>>,
+    parent_context: Option<&'a ExecutionContext<'a>>,
 }
 
-pub struct ExecutionContext {
+pub struct ExecutionContext<'a> {
     source_text: String,
     current_pos: (usize, usize),
-    pub symbol_table: Box<SymbolTable>,
-    parent_context: Option<Box<ExecutionContext>>,
+    symbol_table: &'a SymbolTable<'a>,
+    parent_context: Option<&'a ExecutionContext<'a>>,
 }
 
-impl ExecutionContext {
-    pub fn new(source_text: String, symbol_table: Box<SymbolTable>) -> ExecutionContext {
+impl<'a> ExecutionContext<'a> {
+    pub fn new(source_text: String, symbol_table: &'a SymbolTable<'a>) -> ExecutionContext<'a> {
         ExecutionContext {
             source_text,
             symbol_table,
@@ -159,23 +160,25 @@ impl ExecutionContext {
     }
 }
 
-impl SymbolTable {
+impl<'a> SymbolTable<'a> {
     pub fn new(symbols: HashMap<String, SymbolValue>) -> Self {
+        
         SymbolTable {
-            symbols,
+            symbols: RefCell::new(symbols),
             parent_context: None,
         }
     }
 
-    pub fn get(&self, identifier: &str) -> Option<&SymbolValue> {
-        if let Some(value) = self.symbols.get(identifier) {
-            return Some(value);
+    pub fn get(&self, identifier: &str) -> Option<SymbolValue> {
+        let symbols = self.symbols.borrow();
+        if let Some(value) = symbols.get(identifier) {
+            return Some(*value);
         }
 
         let mut parent_context = &self.parent_context;
         while let Some(parent) = parent_context {
-            if let Some(value) = parent.symbol_table.symbols.get(identifier) {
-                return Some(value);
+            if let Some(value) = parent.symbol_table.symbols.borrow().get(identifier) {
+                return Some(*value);
             }
             parent_context = &parent.parent_context;
         }
@@ -183,22 +186,22 @@ impl SymbolTable {
         None
     }
 
-    pub fn set(&mut self, identifier: &str, value: SymbolValue) {
-        self.symbols.insert(identifier.to_string(), value);
+    pub fn set(&self, identifier: &str, value: SymbolValue) {
+        self.symbols.borrow_mut().insert(identifier.to_string(), value);
     }
 
-    pub fn remove(&mut self, identifier: &str) {
-        self.symbols.remove(identifier);
+    pub fn remove(&self, identifier: &str) {
+        self.symbols.borrow_mut().remove(identifier);
     }
 }
 
-pub trait Interpret {
+pub trait Interpret<'a> {
     // I should try to add some trait methods that "visits" the children nodes
     // and use those instead.
-    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult;
+    fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult;
 }
 
-impl Interpret for SyntaxNode {
+impl<'a> Interpret<'a> for SyntaxNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         match self {
             Self::Variable(node) => node.interpret(context),
@@ -209,7 +212,7 @@ impl Interpret for SyntaxNode {
     }
 }
 
-impl Interpret for VariableNode {
+impl<'a> Interpret<'a> for VariableNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         match &self.identifier_token.value {
             TokenType::Identifier(identifier) => {
@@ -248,8 +251,8 @@ impl Interpret for VariableNode {
 
                     let value = unsafe { value_result.unwrap_unchecked() };
                     match value {
-                        SymbolValue::Int(int) => Ok(InterpretedType::Int(*int)),
-                        SymbolValue::Float(float) => Ok(InterpretedType::Float(*float)),
+                        SymbolValue::Int(int) => Ok(InterpretedType::Int(int)),
+                        SymbolValue::Float(float) => Ok(InterpretedType::Float(float)),
                     }
                     // todo!("implement variable get interpret");
                 }
@@ -259,7 +262,7 @@ impl Interpret for VariableNode {
     }
 }
 
-impl Interpret for FactorNode {
+impl<'a> Interpret<'a> for FactorNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         context.current_pos = self.pos;
 
@@ -271,7 +274,7 @@ impl Interpret for FactorNode {
     }
 }
 
-impl Interpret for UnaryNode {
+impl<'a> Interpret<'a> for UnaryNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         context.current_pos = self.pos;
 
@@ -292,7 +295,7 @@ impl Interpret for UnaryNode {
     }
 }
 
-impl Interpret for TermNode {
+impl<'a> Interpret<'a> for TermNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         let left_result = self.left_node.interpret(context);
         if let Err(err) = left_result {

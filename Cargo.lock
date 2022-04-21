@@ -103,6 +103,7 @@ version = "0.1.1"
 dependencies = [
  "console_error_panic_hook",
  "core",
+ "lazy_static",
  "wasm-bindgen",
  "wee_alloc",
 ]

@@ -160,6 +160,9 @@ impl<'a> ExecutionContext<'a> {
     }
 }
 
+
+unsafe impl<'a> Sync for SymbolTable<'a> {}
+
 impl<'a> SymbolTable<'a> {
     pub fn new(symbols: HashMap<String, SymbolValue>) -> Self {
         

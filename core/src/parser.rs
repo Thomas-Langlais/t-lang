@@ -1,8 +1,8 @@
-use std::fmt::{Display, Formatter, Result as FormatResult};
+use std::fmt::{Display, Formatter, Result as FormatResult, Debug};
 use std::mem;
 use std::vec::IntoIter;
 
-use crate::interpreter::{Execute, ExecutionContext, Interpret, InterpreterResult};
+use crate::interpreter::{Interpret, InterpreterResult, ExecutionContext};
 use crate::lexer::{Location, Token, TokenType};
 
 pub enum ParseError {
@@ -66,6 +66,14 @@ impl Display for IllegalSyntaxError {
 }
 
 #[derive(Debug)]
+pub struct VariableNode {
+    pub identifier_token: Token,
+    pub expression: Option<Box<SyntaxNode>>,
+    pub assign: bool,
+    pub pos: (usize, usize),
+}
+
+#[derive(Debug)]
 pub struct FactorNode {
     pub token: Token,
     pub pos: (usize, usize),
@@ -88,6 +96,7 @@ pub struct TermNode {
 
 #[derive(Debug)]
 pub enum SyntaxNode {
+    Variable(VariableNode),
     Factor(FactorNode),
     UnaryFactor(UnaryNode),
     Term(TermNode),
@@ -96,30 +105,36 @@ pub enum SyntaxNode {
 impl SyntaxNode {
     fn get_pos(&self) -> (usize, usize) {
         match self {
-            SyntaxNode::Factor(node) => node.pos,
-            SyntaxNode::UnaryFactor(node) => node.pos,
-            SyntaxNode::Term(node) => node.pos,
+            Self::Variable(node) => node.pos,
+            Self::Factor(node) => node.pos,
+            Self::UnaryFactor(node) => node.pos,
+            Self::Term(node) => node.pos,
         }
     }
 
     fn set_pos(&mut self, pos: (usize, usize)) {
         match self {
-            SyntaxNode::Factor(node) => node.pos = pos,
-            SyntaxNode::UnaryFactor(node) => node.pos = pos,
-            SyntaxNode::Term(node) => node.pos = pos,
+            Self::Variable(node) => node.pos = pos,
+            Self::Factor(node) => node.pos = pos,
+            Self::UnaryFactor(node) => node.pos = pos,
+            Self::Term(node) => node.pos = pos,
         }
     }
 }
 
 pub struct AbstractSyntaxTree {
     inner: SyntaxNode,
-    source_text: String,
 }
 
-impl Execute for AbstractSyntaxTree {
-    fn execute(&self) -> InterpreterResult {
-        let mut context = ExecutionContext::new(self.source_text.clone());
-        self.inner.interpret(&mut context)
+impl Debug for AbstractSyntaxTree {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
+        write!(f, "{:#?}", self.inner)
+    }
+}
+
+impl<'a> Interpret<'a> for AbstractSyntaxTree {
+    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+        self.inner.interpret(context)
     }
 }
 
@@ -186,27 +201,12 @@ impl<'a> Parser {
      * helper functions for parsing grammar nodes into the stacks
      */
 
-    fn factor(&mut self) -> InternalParseResult {
+    /// atom = INT|FLOAT|IDENTIFIER
+    ///      = LParen expression RParen
+    fn atom(&mut self) -> InternalParseResult {
         let current_token = mem::replace(&mut self.current_token, None).unwrap();
 
         match current_token.value {
-            TokenType::Operation('+') | TokenType::Operation('-') => {
-                self.advance();
-                let factor_result = self.factor();
-                if let Err(err) = factor_result {
-                    return Err(err);
-                }
-
-                let factor = unsafe { factor_result.unwrap_unchecked() };
-                let (_, end) = factor.get_pos();
-                let start = current_token.source.start.column;
-
-                Ok(SyntaxNode::UnaryFactor(UnaryNode {
-                    op_token: current_token,
-                    node: Box::new(factor),
-                    pos: (start, end),
-                }))
-            }
             TokenType::Int(_) | TokenType::Float(_) => {
                 self.advance();
                 let pos = (
@@ -215,9 +215,22 @@ impl<'a> Parser {
                 );
                 Ok(SyntaxNode::Factor(FactorNode {
                     token: current_token,
-                    pos: pos,
+                    pos,
                 }))
             }
+            TokenType::Identifier(_) => {
+                self.advance();
+                let pos = (
+                    current_token.source.start.column,
+                    current_token.source.end.column,
+                );
+                Ok(SyntaxNode::Variable(VariableNode {
+                    identifier_token: current_token,
+                    expression: None,
+                    assign: false,
+                    pos
+                }))
+            },
             TokenType::LParen('(') => {
                 let start = current_token.source.start.column;
                 self.advance();
@@ -229,20 +242,20 @@ impl<'a> Parser {
                 let mut expression = unsafe { result.unwrap_unchecked() };
 
                 let token_ref = self.current_token.as_ref().unwrap();
-                let token_type = token_ref.value;
+                let token_type = &token_ref.value;
                 let location = token_ref.source;
 
-                if token_type == TokenType::RParen(')') {
+                if token_type == &TokenType::RParen(')') {
                     let end = location.end.column;
                     expression.set_pos((start, end));
                     self.advance();
-                    return Ok(expression);
+                    Ok(expression)
                 } else {
                     self.load_debug_line();
                     let source = self.regenerate_source();
-                    return Err(ParseError::SyntaxError(
+                    Err(ParseError::SyntaxError(
                         IllegalSyntaxError::new_invalid_syntax("Expected ')'", location, source),
-                    ));
+                    ))
                 }
             }
             _ => {
@@ -250,25 +263,131 @@ impl<'a> Parser {
                 // reset the parsers current token since, it's not a valid factor token
                 self.current_token = Some(current_token);
                 self.load_debug_line();
-                return Err(ParseError::SyntaxError(
+                Err(ParseError::SyntaxError(
                     IllegalSyntaxError::new_invalid_syntax(
-                        "Expected an int or float",
+                        "Expected an number, variable, or expression",
                         location,
                         self.regenerate_source(),
                     ),
-                ));
+                ))
             }
         }
     }
 
+    /// factor = atom
+    ///        = (PLUS|MINUS) factor
+    fn factor(&mut self) -> InternalParseResult {
+        match self.current_token.as_ref().unwrap().value {
+            TokenType::Operation('+') | TokenType::Operation('-') => {
+                let op_token = mem::replace(&mut self.current_token, None).unwrap();
+                self.advance();
+
+                let factor_result = self.factor();
+                if let Err(err) = factor_result {
+                    return Err(err);
+                }
+
+                let factor = unsafe { factor_result.unwrap_unchecked() };
+                let (_, end) = factor.get_pos();
+                let start = op_token.source.start.column;
+
+                Ok(SyntaxNode::UnaryFactor(UnaryNode {
+                    op_token,
+                    node: Box::new(factor),
+                    pos: (start, end),
+                }))
+            }
+            _ => {
+                self.atom()
+            }
+        }
+    }
+
+    /// term = factor (MUL|DIV factor)*
     fn term(&mut self) -> InternalParseResult {
         let func = |parser: &mut Parser| parser.factor();
         self.bin_op(func, &TERM_OPS)
     }
 
+    /// expression = KW:LET IDENTIFIER EQ expression
+    ///            = term (PLUS|MINUS term)*
     fn expression(&mut self) -> InternalParseResult {
-        let func = |parser: &mut Parser| parser.term();
-        self.bin_op(func, &EXPRESSION_OPS)
+        {
+            if let Some(Token {
+                value: TokenType::Keyword("let"),
+                ..
+            }) = self.current_token
+            {
+                let let_token = mem::replace(&mut self.current_token, None).unwrap();
+                self.advance();
+
+                let identifier_token = match self.current_token {
+                    Some(Token {
+                        value: TokenType::Identifier(_),
+                        ..
+                    }) => {
+                        let token = mem::replace(&mut self.current_token, None).unwrap();
+                        self.advance();
+                        token
+                    }
+                    _ => {
+                        let location = match &self.current_token {
+                            Some(token) => token.source,
+                            None => let_token.source,
+                        };
+                        self.load_debug_line();
+                        return Err(ParseError::SyntaxError(
+                            IllegalSyntaxError::new_invalid_syntax(
+                                "Expected a variable name",
+                                location,
+                                self.regenerate_source(),
+                            ),
+                        ));
+                    }
+                };
+
+                match self.current_token {
+                    Some(Token {
+                        value: TokenType::Operation('='),
+                        ..
+                    }) => {
+                        self.advance();
+                    }
+                    _ => {
+                        let location = match &self.current_token {
+                            Some(token) => token.source,
+                            None => identifier_token.source,
+                        };
+                        self.load_debug_line();
+                        return Err(ParseError::SyntaxError(
+                            IllegalSyntaxError::new_invalid_syntax(
+                                "Expected a variable name",
+                                location,
+                                self.regenerate_source(),
+                            ),
+                        ));
+                    }
+                };
+
+                let expression_result = self.expression();
+                if let Err(err) = expression_result {
+                    return Err(err);
+                }
+
+                let expr = unsafe { expression_result.unwrap_unchecked() };
+                let pos = (let_token.source.start.column, expr.get_pos().1);
+                let expression = Some(Box::new(expr));
+                Ok(SyntaxNode::Variable(VariableNode {
+                    identifier_token,
+                    expression,
+                    assign: true,
+                    pos
+                }))
+            } else {
+                let func = |parser: &mut Parser| parser.term();
+                self.bin_op(func, &EXPRESSION_OPS)
+            }
+        }
     }
 
     fn bin_op(
@@ -313,13 +432,12 @@ impl<'a> Parser {
     pub fn generate_syntax_tree(&mut self) -> ParseResult {
         let result = self.expression();
         let current_token = self.current_token.as_ref().unwrap();
-        let token_type = current_token.value;
+        let token_type = &current_token.value;
         let token_location = current_token.source;
 
         match result {
-            Ok(node) if matches!(token_type, TokenType::EOF) => Ok(AbstractSyntaxTree {
+            Ok(node) if matches!(token_type, &TokenType::EOF) => Ok(AbstractSyntaxTree {
                 inner: node,
-                source_text: self.regenerate_source(),
             }),
             Err(err) => Err(err),
             _ => {

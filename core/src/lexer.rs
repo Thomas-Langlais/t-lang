@@ -1,6 +1,9 @@
 use std::fmt::{self, Result as FormatResult};
 use std::string::ToString;
 
+// statics
+static KEYWORDS: &[&str] = &["let"];
+
 // Tokens structures
 pub struct Token {
     pub value: TokenType,
@@ -9,12 +12,18 @@ pub struct Token {
 
 impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.value)
+        write!(
+            f,
+            "{:#?}",
+            self.value
+        )
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TokenType {
+    Keyword(&'static str),
+    Identifier(String),
     LParen(char),
     RParen(char),
     Operation(char),
@@ -26,6 +35,8 @@ pub enum TokenType {
 impl ToString for TokenType {
     fn to_string(&self) -> String {
         match self {
+            TokenType::Keyword(word) => word.to_string(),
+            TokenType::Identifier(identifier) => identifier.to_string(),
             TokenType::LParen(lp) => lp.to_string(),
             TokenType::RParen(rp) => rp.to_string(),
             TokenType::Operation(op) => op.to_string(),
@@ -107,79 +118,17 @@ impl<'a> Iterator for Lexer<'a> {
         return loop {
             // check the contents of the context
             match self.byte {
+                Some(b'a'..=b'z') | Some(b'A'..=b'Z') => {
+                    break self.parse_identifier(self.src);
+                }
                 Some(b'0'..=b'9') => {
                     // implement here.
                     break self.parse_number(self.src);
                 }
-                Some(b'+') => {
+                Some(op @ (b'+' | b'-' | b'*' | b'/' | b'=')) => {
                     // create the token
                     let token = Token {
-                        value: TokenType::Operation('+'),
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
-                    };
-                    // advance the iterator context to the next char
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(b'-') => {
-                    // create the token
-                    let token = Token {
-                        value: TokenType::Operation('-'),
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
-                    };
-                    // advance the iterator context to the next char
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(b'*') => {
-                    // create the token
-                    let token = Token {
-                        value: TokenType::Operation('*'),
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
-                    };
-                    // advance the iterator context to the next char
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(b'/') => {
-                    // create the token
-                    let token = Token {
-                        value: TokenType::Operation('/'),
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
-                    };
-                    // advance the iterator context to the next char
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(b'(') => {
-                    // create the token
-                    let token = Token {
-                        value: TokenType::LParen('('),
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
-                    };
-                    // advance the iterator context to the next char
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(b')') => {
-                    // create the token
-                    let token = Token {
-                        value: TokenType::RParen(')'),
+                        value: TokenType::Operation(*op as char),
                         source: Location {
                             start: self.src,
                             end: self.src,
@@ -238,9 +187,8 @@ impl<'a> Lexer<'a> {
         while let Some(result_token) = self.next() {
             match result_token {
                 Ok(token) => {
-                    let token_type = token.value;
                     tokens.push(token);
-                    if let TokenType::EOF = token_type {
+                    if tokens.last().unwrap().value == TokenType::EOF {
                         break;
                     }
                 }
@@ -257,6 +205,56 @@ impl<'a> Lexer<'a> {
         self.pos += 1;
         self.byte = self.buffer.get(self.pos);
         self.src.column += 1;
+    }
+
+    fn parse_identifier(
+        &mut self,
+        starting_position: Position,
+    ) -> Option<Result<Token, LexerError>> {
+        let mut identifier = vec![*self.byte.unwrap()];
+        self.advance();
+
+        while let Some(byte) = self.byte {
+            match byte {
+                (b'a'..=b'z') | (b'A'..=b'Z') | b'_' => {
+                    identifier.push(*byte);
+                    self.advance();
+                }
+                _ => {
+                    return Some(Ok({
+                        if let Some(word) =
+                            KEYWORDS.iter().find(|word| *word.as_bytes() == identifier)
+                        {
+                            Token {
+                                value: TokenType::Keyword(word),
+                                source: Location {
+                                    start: starting_position,
+                                    end: Position {
+                                        column: self.src.column - 1,
+                                        ..self.src
+                                    },
+                                },
+                            }
+                        } else {
+                            Token {
+                                value: TokenType::Identifier(
+                                    String::from_utf8(identifier).unwrap(),
+                                ),
+                                source: Location {
+                                    start: starting_position,
+                                    end: Position {
+                                        column: self.src.column - 1,
+                                        ..self.src
+                                    },
+                                },
+                            }
+                        }
+                    }));
+                }
+            }
+        }
+
+        None
     }
 
     // generic number parser, it will out put either a int or float

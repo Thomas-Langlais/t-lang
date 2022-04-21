@@ -9,7 +9,7 @@ init()
 
         document.getElementById("output").innerText = result;
 
-        e.target = "";
+        e.target.value = "";
       }
     });
   })

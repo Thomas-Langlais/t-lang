@@ -3,7 +3,7 @@ use std::mem;
 use std::vec::IntoIter;
 
 use crate::interpreter::{Interpret, InterpreterResult, ExecutionContext};
-use crate::lexer::{Location, Token, TokenType};
+use crate::lexer::{Location, Token, TokenType, OperationTokenType};
 
 pub enum ParseError {
     SyntaxError(IllegalSyntaxError),
@@ -152,8 +152,8 @@ pub struct Parser {
 pub type ParseResult = Result<AbstractSyntaxTree, ParseError>;
 type InternalParseResult = Result<SyntaxNode, ParseError>;
 
-static EXPRESSION_OPS: [TokenType; 2] = [TokenType::Operation('+'), TokenType::Operation('-')];
-static TERM_OPS: [TokenType; 2] = [TokenType::Operation('*'), TokenType::Operation('/')];
+static EXPRESSION_OPS: [TokenType; 2] = [TokenType::Operation(OperationTokenType::Arithmetic('+')), TokenType::Operation(OperationTokenType::Arithmetic('-'))];
+static TERM_OPS: [TokenType; 2] = [TokenType::Operation(OperationTokenType::Arithmetic('*')), TokenType::Operation(OperationTokenType::Arithmetic('/'))];
 
 impl<'a> Parser {
     pub fn new(tokens: Vec<Token>) -> Parser {
@@ -278,7 +278,7 @@ impl<'a> Parser {
     ///        = (PLUS|MINUS) factor
     fn factor(&mut self) -> InternalParseResult {
         match self.current_token.as_ref().unwrap().value {
-            TokenType::Operation('+') | TokenType::Operation('-') => {
+            TokenType::Operation(OperationTokenType::Arithmetic('+')) | TokenType::Operation(OperationTokenType::Arithmetic('-')) => {
                 let op_token = mem::replace(&mut self.current_token, None).unwrap();
                 self.advance();
 
@@ -348,7 +348,7 @@ impl<'a> Parser {
 
                 match self.current_token {
                     Some(Token {
-                        value: TokenType::Operation('='),
+                        value: TokenType::Operation(OperationTokenType::EQ),
                         ..
                     }) => {
                         self.advance();

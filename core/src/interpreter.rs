@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FormatResult};
 
-use crate::lexer::TokenType;
+use crate::lexer::{TokenType, OperationTokenType};
 use crate::parser::{FactorNode, SyntaxNode, TermNode, UnaryNode, VariableNode};
 
 pub enum InterpretedType {
@@ -281,10 +281,10 @@ impl<'a> Interpret<'a> for UnaryNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         context.current_pos = self.pos;
 
-        if matches!(self.op_token.value, TokenType::Operation('+')) {
+        if matches!(self.op_token.value, TokenType::Operation(OperationTokenType::Arithmetic('+'))) {
             return self.node.interpret(context);
         }
-        if matches!(self.op_token.value, TokenType::Operation('-')) {
+        if matches!(self.op_token.value, TokenType::Operation(OperationTokenType::Arithmetic('-'))) {
             let result = self.node.interpret(context);
             if let Err(err) = result {
                 return Err(err);
@@ -319,10 +319,10 @@ impl<'a> Interpret<'a> for TermNode {
         };
 
         match self.op_token.value {
-            TokenType::Operation('+') => add(lhs, rhs),
-            TokenType::Operation('-') => subtract(lhs, rhs),
-            TokenType::Operation('*') => multiply(lhs, rhs),
-            TokenType::Operation('/') => divide(lhs, rhs, context),
+            TokenType::Operation(OperationTokenType::Arithmetic('+')) => add(lhs, rhs),
+            TokenType::Operation(OperationTokenType::Arithmetic('-')) => subtract(lhs, rhs),
+            TokenType::Operation(OperationTokenType::Arithmetic('*')) => multiply(lhs, rhs),
+            TokenType::Operation(OperationTokenType::Arithmetic('/')) => divide(lhs, rhs, context),
             _ => panic!("Only +,-,*,/ are allowed\nop {:?}", self.op_token),
         }
     }

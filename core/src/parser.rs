@@ -1,9 +1,9 @@
-use std::fmt::{Display, Formatter, Result as FormatResult, Debug};
+use std::fmt::{Debug, Display, Formatter, Result as FormatResult};
 use std::mem;
 use std::vec::IntoIter;
 
-use crate::interpreter::{Interpret, InterpreterResult, ExecutionContext};
-use crate::lexer::{Location, Token, TokenType, OperationTokenType};
+use crate::interpreter::{ExecutionContext, Interpret, InterpreterResult};
+use crate::lexer::{CompType, Location, LogicType, OperationTokenType, Token, TokenType};
 
 pub enum ParseError {
     SyntaxError(IllegalSyntaxError),
@@ -98,7 +98,7 @@ pub struct TermNode {
 pub enum SyntaxNode {
     Variable(VariableNode),
     Factor(FactorNode),
-    UnaryFactor(UnaryNode),
+    Unary(UnaryNode),
     Term(TermNode),
 }
 
@@ -107,7 +107,7 @@ impl SyntaxNode {
         match self {
             Self::Variable(node) => node.pos,
             Self::Factor(node) => node.pos,
-            Self::UnaryFactor(node) => node.pos,
+            Self::Unary(node) => node.pos,
             Self::Term(node) => node.pos,
         }
     }
@@ -116,7 +116,7 @@ impl SyntaxNode {
         match self {
             Self::Variable(node) => node.pos = pos,
             Self::Factor(node) => node.pos = pos,
-            Self::UnaryFactor(node) => node.pos = pos,
+            Self::Unary(node) => node.pos = pos,
             Self::Term(node) => node.pos = pos,
         }
     }
@@ -152,8 +152,14 @@ pub struct Parser {
 pub type ParseResult = Result<AbstractSyntaxTree, ParseError>;
 type InternalParseResult = Result<SyntaxNode, ParseError>;
 
-static EXPRESSION_OPS: [TokenType; 2] = [TokenType::Operation(OperationTokenType::Arithmetic('+')), TokenType::Operation(OperationTokenType::Arithmetic('-'))];
-static TERM_OPS: [TokenType; 2] = [TokenType::Operation(OperationTokenType::Arithmetic('*')), TokenType::Operation(OperationTokenType::Arithmetic('/'))];
+static EXPRESSION_OPS: [TokenType; 2] = [
+    TokenType::Operation(OperationTokenType::Arithmetic('+')),
+    TokenType::Operation(OperationTokenType::Arithmetic('-')),
+];
+static TERM_OPS: [TokenType; 2] = [
+    TokenType::Operation(OperationTokenType::Arithmetic('*')),
+    TokenType::Operation(OperationTokenType::Arithmetic('/')),
+];
 
 impl<'a> Parser {
     pub fn new(tokens: Vec<Token>) -> Parser {
@@ -228,9 +234,9 @@ impl<'a> Parser {
                     identifier_token: current_token,
                     expression: None,
                     assign: false,
-                    pos
+                    pos,
                 }))
-            },
+            }
             TokenType::LParen('(') => {
                 let start = current_token.source.start.column;
                 self.advance();
@@ -278,7 +284,8 @@ impl<'a> Parser {
     ///        = (PLUS|MINUS) factor
     fn factor(&mut self) -> InternalParseResult {
         match self.current_token.as_ref().unwrap().value {
-            TokenType::Operation(OperationTokenType::Arithmetic('+')) | TokenType::Operation(OperationTokenType::Arithmetic('-')) => {
+            TokenType::Operation(OperationTokenType::Arithmetic('+'))
+            | TokenType::Operation(OperationTokenType::Arithmetic('-')) => {
                 let op_token = mem::replace(&mut self.current_token, None).unwrap();
                 self.advance();
 
@@ -291,15 +298,13 @@ impl<'a> Parser {
                 let (_, end) = factor.get_pos();
                 let start = op_token.source.start.column;
 
-                Ok(SyntaxNode::UnaryFactor(UnaryNode {
+                Ok(SyntaxNode::Unary(UnaryNode {
                     op_token,
                     node: Box::new(factor),
                     pos: (start, end),
                 }))
             }
-            _ => {
-                self.atom()
-            }
+            _ => self.atom(),
         }
     }
 
@@ -309,8 +314,65 @@ impl<'a> Parser {
         self.bin_op(func, &TERM_OPS)
     }
 
-    /// expression = KW:LET IDENTIFIER EQ expression
-    ///            = term (PLUS|MINUS term)*
+    /// arith_expr = term (PLUS|MINUS term)*
+    fn arith_expr(&mut self) -> InternalParseResult {
+        let func = |parser: &mut Parser| parser.term();
+        self.bin_op(func, &EXPRESSION_OPS)
+    }
+
+    /// comp_expr = NOT comp_expr
+    ///           = arith_expr ((EE|NE|LT|GT|LTE|GTE) arith_expr)*
+    fn comp_expr(&mut self) -> InternalParseResult {
+        if let Some(Token {
+            value: TokenType::Operation(OperationTokenType::Logic(LogicType::NOT)),
+            ..
+        }) = self.current_token
+        {
+            let op_token = mem::replace(&mut self.current_token, None).unwrap();
+            self.advance();
+
+            let cmp_expr = self.comp_expr();
+            if let Err(err) = cmp_expr {
+                return Err(err);
+            }
+
+            let node = Box::new(unsafe { cmp_expr.unwrap_unchecked() });
+            let pos = (op_token.source.start.column, node.get_pos().1);
+            Ok(SyntaxNode::Unary(UnaryNode {
+                op_token,
+                node,
+                pos,
+            }))
+        } else {
+            let func = |parser: &mut Parser| parser.arith_expr();
+            self.bin_op(
+                func,
+                &[
+                    TokenType::Operation(OperationTokenType::Comparison(CompType::EE)),
+                    TokenType::Operation(OperationTokenType::Comparison(CompType::NE)),
+                    TokenType::Operation(OperationTokenType::Comparison(CompType::LT)),
+                    TokenType::Operation(OperationTokenType::Comparison(CompType::LTE)),
+                    TokenType::Operation(OperationTokenType::Comparison(CompType::GT)),
+                    TokenType::Operation(OperationTokenType::Comparison(CompType::GTE)),
+                ],
+            )
+        }
+    }
+
+    /// expr = comp_expr ((AND|OR) comp_expr)*
+    fn expr(&mut self) -> InternalParseResult {
+        let func = |parser: &mut Parser| parser.comp_expr();
+        self.bin_op(
+            func,
+            &[
+                TokenType::Operation(OperationTokenType::Logic(LogicType::AND)),
+                TokenType::Operation(OperationTokenType::Logic(LogicType::OR)),
+            ],
+        )
+    }
+
+    /// expression = KW:LET IDENTIFIER EQ expr
+    ///            = expr
     fn expression(&mut self) -> InternalParseResult {
         {
             if let Some(Token {
@@ -369,7 +431,7 @@ impl<'a> Parser {
                     }
                 };
 
-                let expression_result = self.expression();
+                let expression_result = self.expr();
                 if let Err(err) = expression_result {
                     return Err(err);
                 }
@@ -381,11 +443,10 @@ impl<'a> Parser {
                     identifier_token,
                     expression,
                     assign: true,
-                    pos
+                    pos,
                 }))
             } else {
-                let func = |parser: &mut Parser| parser.term();
-                self.bin_op(func, &EXPRESSION_OPS)
+                self.expr()
             }
         }
     }
@@ -436,9 +497,9 @@ impl<'a> Parser {
         let token_location = current_token.source;
 
         match result {
-            Ok(node) if matches!(token_type, &TokenType::EOF) => Ok(AbstractSyntaxTree {
-                inner: node,
-            }),
+            Ok(node) if matches!(token_type, &TokenType::EOF) => {
+                Ok(AbstractSyntaxTree { inner: node })
+            }
             Err(err) => Err(err),
             _ => {
                 self.load_debug_line();

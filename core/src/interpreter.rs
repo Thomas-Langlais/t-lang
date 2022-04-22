@@ -209,7 +209,7 @@ impl<'a> Interpret<'a> for SyntaxNode {
         match self {
             Self::Variable(node) => node.interpret(context),
             Self::Factor(node) => node.interpret(context),
-            Self::UnaryFactor(node) => node.interpret(context),
+            Self::Unary(node) => node.interpret(context),
             Self::Term(node) => node.interpret(context),
         }
     }

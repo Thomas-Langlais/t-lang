@@ -460,13 +460,10 @@ impl<'a> Lexer<'a> {
                     source: Location { start, end },
                 }))
             }
-            Some(_) => {
-                self.advance();
-                Some(Ok(Token {
-                    value: TokenType::Operation(OperationTokenType::EQ),
-                    source: Location { start, end: start },
-                }))
-            }
+            Some(_) => Some(Ok(Token {
+                value: TokenType::Operation(OperationTokenType::EQ),
+                source: Location { start, end: start },
+            })),
             None => None,
         }
     }
@@ -482,13 +479,10 @@ impl<'a> Lexer<'a> {
                     source: Location { start, end },
                 }))
             }
-            Some(_) => {
-                self.advance();
-                Some(Ok(Token {
-                    value: TokenType::Operation(OperationTokenType::Logic(LogicType::NOT)),
-                    source: Location { start, end: start },
-                }))
-            }
+            Some(_) => Some(Ok(Token {
+                value: TokenType::Operation(OperationTokenType::Logic(LogicType::NOT)),
+                source: Location { start, end: start },
+            })),
             None => None,
         }
     }
@@ -544,13 +538,10 @@ impl<'a> Lexer<'a> {
                     source: Location { start, end },
                 }))
             }
-            Some(_) => {
-                self.advance();
-                Some(Ok(Token {
-                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::GT)),
-                    source: Location { start, end: start },
-                }))
-            }
+            Some(_) => Some(Ok(Token {
+                value: TokenType::Operation(OperationTokenType::Comparison(CompType::GT)),
+                source: Location { start, end: start },
+            })),
             None => None,
         }
     }
@@ -566,13 +557,10 @@ impl<'a> Lexer<'a> {
                     source: Location { start, end },
                 }))
             }
-            Some(_) => {
-                self.advance();
-                Some(Ok(Token {
-                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::LT)),
-                    source: Location { start, end: start },
-                }))
-            }
+            Some(_) => Some(Ok(Token {
+                value: TokenType::Operation(OperationTokenType::Comparison(CompType::LT)),
+                source: Location { start, end: start },
+            })),
             None => None,
         }
     }

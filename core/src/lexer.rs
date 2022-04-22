@@ -12,7 +12,11 @@ pub struct Token {
 
 impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:#?}", self.value)
+        if f.alternate() {
+            write!(f, "{:#?}", self.value)
+        } else {
+            write!(f, "{:?}", self.value)
+        }
     }
 }
 
@@ -419,27 +423,24 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn parse_equal(&mut self, starting_position: Position) -> Option<Result<Token, LexerError>> {
+    fn parse_equal(&mut self, start: Position) -> Option<Result<Token, LexerError>> {
         self.advance();
         match self.byte {
             Some(b'=') => {
-                let ending_position = self.src;
+                let end = self.src;
                 self.advance();
                 Some(Ok(Token {
                     value: TokenType::Operation(OperationTokenType::Comparison(CompType::EE)),
-                    source: Location {
-                        start: starting_position,
-                        end: ending_position,
-                    },
+                    source: Location { start, end },
                 }))
             }
-            Some(_) => Some(Ok(Token {
-                value: TokenType::Operation(OperationTokenType::EQ),
-                source: Location {
-                    start: starting_position,
-                    end: starting_position,
-                },
-            })),
+            Some(_) => {
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::EQ),
+                    source: Location { start, end: start },
+                }))
+            }
             None => None,
         }
     }
@@ -452,36 +453,101 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 Some(Ok(Token {
                     value: TokenType::Operation(OperationTokenType::Comparison(CompType::NE)),
-                    source: Location {
-                        start,
-                        end,
-                    },
+                    source: Location { start, end },
                 }))
             }
-            Some(_) => Some(Ok(Token {
-                value: TokenType::Operation(OperationTokenType::Logic(LogicType::NOT)),
-                source: Location {
-                    start,
-                    end: start,
-                },
-            })),
+            Some(_) => {
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::Logic(LogicType::NOT)),
+                    source: Location { start, end: start },
+                }))
+            }
             None => None,
         }
     }
 
-    fn parse_and(&mut self, starting_position: Position) -> Option<Result<Token, LexerError>> {
-        todo!()
+    fn parse_and(&mut self, start: Position) -> Option<Result<Token, LexerError>> {
+        self.advance();
+        match self.byte {
+            Some(b'&') => {
+                let end = self.src;
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::Logic(LogicType::AND)),
+                    source: Location { start, end },
+                }))
+            }
+            _ => Some(Err(LexerError::new(
+                "Incomplete token error",
+                "Expected '&&'".to_string(),
+                self.src,
+                self.buffer.iter().map(|b| *b as char).collect(),
+            ))),
+        }
     }
 
-    fn parse_or(&mut self, starting_position: Position) -> Option<Result<Token, LexerError>> {
-        todo!()
+    fn parse_or(&mut self, start: Position) -> Option<Result<Token, LexerError>> {
+        self.advance();
+        match self.byte {
+            Some(b'|') => {
+                let end = self.src;
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::Logic(LogicType::OR)),
+                    source: Location { start, end },
+                }))
+            }
+            _ => Some(Err(LexerError::new(
+                "Incomplete token error",
+                "Expected '||'".to_string(),
+                self.src,
+                self.buffer.iter().map(|b| *b as char).collect(),
+            ))),
+        }
     }
 
-    fn parse_lesser(&mut self, starting_position: Position) -> Option<Result<Token, LexerError>> {
-        todo!()
+    fn parse_lesser(&mut self, start: Position) -> Option<Result<Token, LexerError>> {
+        self.advance();
+        match self.byte {
+            Some(b'=') => {
+                let end = self.src;
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::GTE)),
+                    source: Location { start, end },
+                }))
+            }
+            Some(_) => {
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::GT)),
+                    source: Location { start, end: start },
+                }))
+            }
+            None => None,
+        }
     }
 
-    fn parse_greater(&mut self, starting_position: Position) -> Option<Result<Token, LexerError>> {
-        todo!()
+    fn parse_greater(&mut self, start: Position) -> Option<Result<Token, LexerError>> {
+        self.advance();
+        match self.byte {
+            Some(b'=') => {
+                let end = self.src;
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::LTE)),
+                    source: Location { start, end },
+                }))
+            }
+            Some(_) => {
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::LT)),
+                    source: Location { start, end: start },
+                }))
+            }
+            None => None,
+        }
     }
 }

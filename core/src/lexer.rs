@@ -21,12 +21,36 @@ impl fmt::Debug for Token {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum LogicType {
+    NOT,
+    AND,
+    OR
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum CompType {
+    EE,
+    NE,
+    LT,
+    GT,
+    LTE,
+    GTE,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum OperationTokenType {
+    Arithmetic(char),
+    Logic(LogicType),
+    Comparison(CompType)
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum TokenType {
     Keyword(&'static str),
     Identifier(String),
     LParen(char),
     RParen(char),
-    Operation(char),
+    Operation(OperationTokenType),
     Int(i64),
     Float(f64),
     EOF,
@@ -43,6 +67,39 @@ impl ToString for TokenType {
             TokenType::Int(int) => int.to_string(),
             TokenType::Float(float) => float.to_string(),
             TokenType::EOF => "\\n".to_string(),
+        }
+    }
+}
+
+impl ToString for OperationTokenType {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Arithmetic(op) => op.to_string(),
+            Self::Comparison(cmp) => cmp.to_string(),
+            Self::Logic(lgc) => lgc.to_string()
+        }
+    }
+}
+
+impl ToString for CompType {
+    fn to_string(&self) -> String {
+        match self {
+            Self::EE => "==".to_string(),
+            Self::NE => "!=".to_string(),
+            Self::LT => "<".to_string(),
+            Self::GT => ">".to_string(),
+            Self::LTE => "<=".to_string(),
+            Self::GTE => ">=".to_string(),
+        }
+    }
+}
+
+impl ToString for LogicType {
+    fn to_string(&self) -> String {
+        match self {
+            Self::AND => "&&".to_string(),
+            Self::OR => "||".to_string(),
+            Self::NOT => "!".to_string(),
         }
     }
 }
@@ -125,7 +182,7 @@ impl<'a> Iterator for Lexer<'a> {
                     // implement here.
                     break self.parse_number(self.src);
                 }
-                Some(op @ (b'+' | b'-' | b'*' | b'/' | b'=')) => {
+                Some(op @ (b'+' | b'-' | b'*' | b'/')) => {
                     // create the token
                     let token = Token {
                         value: TokenType::Operation(*op as char),
@@ -137,6 +194,24 @@ impl<'a> Iterator for Lexer<'a> {
                     // advance the iterator context to the next char
                     self.advance();
                     break Some(Ok(token));
+                }
+                Some(b'=') => {
+                    break self.parse_equal(self.src);
+                }
+                Some(b'!') => {
+                    break self.parse_not(self.src);
+                }
+                Some(b'&') => {
+                    break self.parse_and(self.src);
+                }
+                Some(b'|') => {
+                    break self.parse_or(self.src);
+                }
+                Some(b'<') => {
+                    break self.parse_lesser(self.src);
+                }
+                Some(b'>') => {
+                    break self.parse_greater(self.src);
                 }
                 // this is empty as we don't need to do any parsing on white spaces or tabs
                 Some(b' ') | Some(b'\t') => {
@@ -344,5 +419,29 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
+    }
+
+    fn parse_equal(&mut self, starting_position: Position) -> Option<Result<Token, LexerError>> {
+        todo!()
+    }
+
+    fn parse_not(&mut self, starting_position: Position) -> Option<Result<Token, LexerError>> {
+        todo!()
+    }
+
+    fn parse_and(&mut self, starting_position: Position) -> Option<Result<Token, LexerError>> {
+        todo!()
+    }
+
+    fn parse_or(&mut self, starting_position: Position) -> Option<Result<Token, LexerError>> {
+        todo!()
+    }
+
+    fn parse_lesser(&mut self, starting_position: Position) -> Option<Result<Token, LexerError>> {
+        todo!()
+    }
+
+    fn parse_greater(&mut self, starting_position: Position) -> Option<Result<Token, LexerError>> {
+        todo!()
     }
 }

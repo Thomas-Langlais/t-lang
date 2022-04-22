@@ -31,6 +31,7 @@ atom       = INT|FLOAT|IDENTIFIER
 | token | text |
 | - | - |
 | EQ | `=` |
+| NOT | `!` |
 | AND | `&&` |
 | OR | `||` |
 | EE | `==` |

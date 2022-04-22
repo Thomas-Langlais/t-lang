@@ -12,11 +12,7 @@ pub struct Token {
 
 impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{:#?}",
-            self.value
-        )
+        write!(f, "{:#?}", self.value)
     }
 }
 
@@ -129,6 +125,32 @@ impl<'a> Iterator for Lexer<'a> {
                     // create the token
                     let token = Token {
                         value: TokenType::Operation(*op as char),
+                        source: Location {
+                            start: self.src,
+                            end: self.src,
+                        },
+                    };
+                    // advance the iterator context to the next char
+                    self.advance();
+                    break Some(Ok(token));
+                }
+                Some(b'(') => {
+                    // create the token
+                    let token = Token {
+                        value: TokenType::LParen('('),
+                        source: Location {
+                            start: self.src,
+                            end: self.src,
+                        },
+                    };
+                    // advance the iterator context to the next char
+                    self.advance();
+                    break Some(Ok(token));
+                }
+                Some(b')') => {
+                    // create the token
+                    let token = Token {
+                        value: TokenType::RParen(')'),
                         source: Location {
                             start: self.src,
                             end: self.src,

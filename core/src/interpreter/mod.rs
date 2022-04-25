@@ -2,17 +2,20 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FormatResult};
 
-use crate::lexer::{TokenType, OperationTokenType};
+use crate::lexer::{CompType, LogicType, OperationTokenType, TokenType};
 use crate::parser::{FactorNode, SyntaxNode, TermNode, UnaryNode, VariableNode};
 
+mod operations;
+
+// #[derive(PartialEq, PartialOrd)]
 pub enum InterpretedType {
     Float(f64),
     Int(i64),
 }
 
 pub struct DivideByZeroError {
-    name: String,
-    details: String,
+    name: &'static str,
+    details: &'static str,
     source: String,
     line: usize,
     start: usize,
@@ -31,24 +34,6 @@ pub enum InterpreterError {
     SymbolNotFound(SymbolNotFoundError),
 }
 
-impl DivideByZeroError {
-    fn new(
-        details: &str,
-        source: String,
-        start: usize,
-        end: usize,
-        line: usize,
-    ) -> DivideByZeroError {
-        DivideByZeroError {
-            name: String::from("Divide by zero"),
-            details: String::from(details),
-            source: source,
-            line,
-            start,
-            end,
-        }
-    }
-}
 impl SymbolNotFoundError {
     fn new(
         details: &str,
@@ -160,12 +145,10 @@ impl<'a> ExecutionContext<'a> {
     }
 }
 
-
 unsafe impl<'a> Sync for SymbolTable<'a> {}
 
 impl<'a> SymbolTable<'a> {
     pub fn new(symbols: HashMap<String, SymbolValue>) -> Self {
-        
         SymbolTable {
             symbols: RefCell::new(symbols),
             parent_context: None,
@@ -190,11 +173,103 @@ impl<'a> SymbolTable<'a> {
     }
 
     pub fn set(&self, identifier: &str, value: SymbolValue) {
-        self.symbols.borrow_mut().insert(identifier.to_string(), value);
+        self.symbols
+            .borrow_mut()
+            .insert(identifier.to_string(), value);
     }
 
     pub fn remove(&self, identifier: &str) {
         self.symbols.borrow_mut().remove(identifier);
+    }
+}
+
+impl From<InterpretedType> for bool {
+    fn from(value: InterpretedType) -> Self {
+        match value {
+            InterpretedType::Float(float) => float != 0.0,
+            InterpretedType::Int(int) => int != 0,
+        }
+    }
+}
+
+impl TermNode {
+    fn arith_op(
+        &self,
+        arith_type: char,
+        lhs: InterpretedType,
+        rhs: InterpretedType,
+        context: &ExecutionContext,
+    ) -> InterpreterResult {
+        match arith_type {
+            '+' => Ok(lhs + rhs),
+            '-' => Ok(lhs - rhs),
+            '*' => Ok(lhs * rhs),
+            '/' => match lhs / rhs {
+                Ok(res) => Ok(res),
+                Err(err) => Err(err.into(context)),
+            },
+            _ => unreachable!("unknown arithmetic operation"),
+        }
+    }
+
+    fn comp_op(
+        &self,
+        cmp_type: CompType,
+        lhs: InterpretedType,
+        rhs: InterpretedType,
+        context: &ExecutionContext,
+    ) -> InterpreterResult {
+        match cmp_type {
+            CompType::EE => Ok(InterpretedType::Int(i64::from(lhs == rhs))),
+            CompType::NE => Ok(InterpretedType::Int(i64::from(lhs != rhs))),
+            CompType::GT => Ok(InterpretedType::Int(i64::from(lhs > rhs))),
+            CompType::GTE => Ok(InterpretedType::Int(i64::from(lhs >= rhs))),
+            CompType::LT => Ok(InterpretedType::Int(i64::from(lhs < rhs))),
+            CompType::LTE => Ok(InterpretedType::Int(i64::from(lhs <= rhs))),
+        }
+    }
+
+    fn logic_op(
+        &self,
+        lgc_type: LogicType,
+        lhs: bool,
+        rhs: bool,
+        context: &ExecutionContext,
+    ) -> InterpreterResult {
+        match lgc_type {
+            LogicType::AND => {
+                Ok(InterpretedType::Int(i64::from(lhs && rhs)))
+            },
+            LogicType::OR => {
+                Ok(InterpretedType::Int(i64::from(lhs || rhs)))
+            },
+            _ => unreachable!("Cannot interpret ! operation for a term")
+        }
+    }
+}
+
+impl UnaryNode {
+    fn arith_op(&self, arith_type: char, context: &mut ExecutionContext) -> InterpreterResult {
+        match arith_type {
+            '+' => self.node.interpret(context),
+            '-' => {
+                let rhs = self.node.interpret(context)?;
+                context.current_pos = self.pos;
+                Ok(InterpretedType::Int(-1) * rhs)
+            }
+            _ => unreachable!("A unary arithmetic operation can only be -/+"),
+        }
+    }
+
+    fn logic_op(&self, lgc_type: LogicType, context: &mut ExecutionContext) -> InterpreterResult {
+        match lgc_type {
+            LogicType::NOT => {
+                let rhs = self.node.interpret(context)?;
+                context.current_pos = self.pos;
+                Ok(InterpretedType::Int(i64::from(!bool::from(rhs))))
+            }
+            _ => unreachable!("A unary operator can only be !"),
+        }
     }
 }
 
@@ -221,14 +296,9 @@ impl<'a> Interpret<'a> for VariableNode {
             TokenType::Identifier(identifier) => {
                 if self.assign {
                     let expression = unsafe { self.expression.as_ref().unwrap_unchecked() };
-                    let expression_result = expression.interpret(context);
-                    if let Err(err) = expression_result {
-                        return Err(err);
-                    }
+                    let result = expression.interpret(context)?;
 
-                    let result = unsafe { expression_result.unwrap_unchecked() };
                     context.current_pos = self.pos;
-
                     context.symbol_table.set(
                         identifier,
                         match result {
@@ -257,7 +327,6 @@ impl<'a> Interpret<'a> for VariableNode {
                         SymbolValue::Int(int) => Ok(InterpretedType::Int(int)),
                         SymbolValue::Float(float) => Ok(InterpretedType::Float(float)),
                     }
-                    // todo!("implement variable get interpret");
                 }
             }
             _ => panic!("A variable node can only have an identifier token"),
@@ -281,173 +350,37 @@ impl<'a> Interpret<'a> for UnaryNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         context.current_pos = self.pos;
 
-        if matches!(self.op_token.value, TokenType::Operation(OperationTokenType::Arithmetic('+'))) {
-            return self.node.interpret(context);
-        }
-        if matches!(self.op_token.value, TokenType::Operation(OperationTokenType::Arithmetic('-'))) {
-            let result = self.node.interpret(context);
-            if let Err(err) = result {
-                return Err(err);
+        match self.op_token.value {
+            TokenType::Operation(OperationTokenType::Arithmetic(arith_type)) => {
+                self.arith_op(arith_type, context)
             }
-
-            let rhs = unsafe { result.unwrap_unchecked() };
-            return subtract(InterpretedType::Int(0), rhs);
+            TokenType::Operation(OperationTokenType::Logic(lgc_type)) => {
+                self.logic_op(lgc_type, context)
+            }
+            _ => unreachable!("A unary operator can only be -/+ or !"),
         }
-
-        panic!("A unary operator can only be -/+");
     }
 }
 
 impl<'a> Interpret<'a> for TermNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
-        let left_result = self.left_node.interpret(context);
-        if let Err(err) = left_result {
-            return Err(err);
-        }
-        let right_result = self.right_node.interpret(context);
-        if let Err(err) = right_result {
-            return Err(err);
-        }
+        let lhs = self.left_node.interpret(context)?;
+        let rhs = self.right_node.interpret(context)?;
 
         // set the term position after the children have finished
         context.current_pos = self.pos;
-        let (lhs, rhs) = unsafe {
-            (
-                left_result.unwrap_unchecked(),
-                right_result.unwrap_unchecked(),
-            )
-        };
 
         match self.op_token.value {
-            TokenType::Operation(OperationTokenType::Arithmetic('+')) => add(lhs, rhs),
-            TokenType::Operation(OperationTokenType::Arithmetic('-')) => subtract(lhs, rhs),
-            TokenType::Operation(OperationTokenType::Arithmetic('*')) => multiply(lhs, rhs),
-            TokenType::Operation(OperationTokenType::Arithmetic('/')) => divide(lhs, rhs, context),
-            _ => panic!("Only +,-,*,/ are allowed\nop {:?}", self.op_token),
+            TokenType::Operation(OperationTokenType::Arithmetic(arith_type)) => {
+                self.arith_op(arith_type, lhs, rhs, context)
+            }
+            TokenType::Operation(OperationTokenType::Comparison(cmp_type)) => {
+                self.comp_op(cmp_type, lhs, rhs, context)
+            }
+            TokenType::Operation(OperationTokenType::Logic(lgc_type)) => {
+                self.logic_op(lgc_type, bool::from(lhs), bool::from(rhs), context)
+            }
+            _ => unreachable!("Only +,-,*,/ are allowed\nop {:?}", self.op_token),
         }
     }
-}
-
-fn add(left: InterpretedType, right: InterpretedType) -> InterpreterResult {
-    if let InterpretedType::Int(left_int) = left {
-        if let InterpretedType::Int(right_int) = right {
-            let result = left_int + right_int;
-            return Ok(InterpretedType::Int(result));
-        }
-        if let InterpretedType::Float(right_float) = right {
-            let left_float = left_int as f64;
-            let result = left_float + right_float;
-            return Ok(InterpretedType::Float(result));
-        }
-    }
-    if let InterpretedType::Float(left_float) = left {
-        if let InterpretedType::Int(right_int) = right {
-            let right_float = right_int as f64;
-            let result = left_float + right_float;
-            return Ok(InterpretedType::Float(result));
-        }
-        if let InterpretedType::Float(right_float) = right {
-            let result = left_float + right_float;
-            return Ok(InterpretedType::Float(result));
-        }
-    }
-    // It should NEVER reach here
-    panic!("Cannot add a non i64 or f64");
-}
-
-fn subtract(left: InterpretedType, right: InterpretedType) -> InterpreterResult {
-    if let InterpretedType::Int(left_int) = left {
-        if let InterpretedType::Int(right_int) = right {
-            let result = left_int - right_int;
-            return Ok(InterpretedType::Int(result));
-        }
-        if let InterpretedType::Float(right_float) = right {
-            let left_float = left_int as f64;
-            let result = left_float - right_float;
-            return Ok(InterpretedType::Float(result));
-        }
-    }
-    if let InterpretedType::Float(left_float) = left {
-        if let InterpretedType::Int(right_int) = right {
-            let right_float = right_int as f64;
-            let result = left_float - right_float;
-            return Ok(InterpretedType::Float(result));
-        }
-        if let InterpretedType::Float(right_float) = right {
-            let result = left_float - right_float;
-            return Ok(InterpretedType::Float(result));
-        }
-    }
-    // It should NEVER reach here
-    panic!("Cannot subtract a non i64 or f64");
-}
-
-fn multiply(left: InterpretedType, right: InterpretedType) -> InterpreterResult {
-    if let InterpretedType::Int(left_int) = left {
-        if let InterpretedType::Int(right_int) = right {
-            let result = left_int * right_int;
-            return Ok(InterpretedType::Int(result));
-        }
-        if let InterpretedType::Float(right_float) = right {
-            let left_float = left_int as f64;
-            let result = left_float * right_float;
-            return Ok(InterpretedType::Float(result));
-        }
-    }
-    if let InterpretedType::Float(left_float) = left {
-        if let InterpretedType::Int(right_int) = right {
-            let right_float = right_int as f64;
-            let result = left_float * right_float;
-            return Ok(InterpretedType::Float(result));
-        }
-        if let InterpretedType::Float(right_float) = right {
-            let result = left_float * right_float;
-            return Ok(InterpretedType::Float(result));
-        }
-    }
-    // It should NEVER reach here
-    panic!("Cannot multiply a non i64 or f64");
-}
-
-fn divide(
-    left: InterpretedType,
-    right: InterpretedType,
-    context: &ExecutionContext,
-) -> InterpreterResult {
-    if matches!(right, InterpretedType::Int(int) if int == 0)
-        | matches!(right, InterpretedType::Float(float) if float == 0.0)
-    {
-        let (start, end) = context.current_pos;
-        return Err(InterpreterError::DivideByZero(DivideByZeroError::new(
-            "The right hand side of the division expression is 0",
-            context.source_text.clone(),
-            start,
-            end,
-            0,
-        )));
-    }
-    if let InterpretedType::Int(left_int) = left {
-        if let InterpretedType::Int(right_int) = right {
-            let result = left_int / right_int;
-            return Ok(InterpretedType::Int(result));
-        }
-        if let InterpretedType::Float(right_float) = right {
-            let left_float = left_int as f64;
-            let result = left_float / right_float;
-            return Ok(InterpretedType::Float(result));
-        }
-    }
-    if let InterpretedType::Float(left_float) = left {
-        if let InterpretedType::Int(right_int) = right {
-            let right_float = right_int as f64;
-            let result = left_float / right_float;
-            return Ok(InterpretedType::Float(result));
-        }
-        if let InterpretedType::Float(right_float) = right {
-            let result = left_float / right_float;
-            return Ok(InterpretedType::Float(result));
-        }
-    }
-    // It should NEVER reach here
-    panic!("Cannot divide a non i64 or f64");
 }

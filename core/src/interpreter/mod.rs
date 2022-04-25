@@ -2,15 +2,19 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FormatResult};
 
-use crate::lexer::{CompType, LogicType, OperationTokenType, TokenType};
+use crate::lexer::{OperationTokenType, TokenType};
 use crate::parser::{FactorNode, SyntaxNode, TermNode, UnaryNode, VariableNode};
 
 mod operations;
 
-// #[derive(PartialEq, PartialOrd)]
 pub enum InterpretedType {
     Float(f64),
     Int(i64),
+}
+
+pub struct RTError {
+    name: &'static str,
+    details: &'static str
 }
 
 pub struct DivideByZeroError {
@@ -122,8 +126,14 @@ pub enum SymbolValue {
     Float(f64),
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SymbolEntry {
+    pub value: SymbolValue,
+    pub is_constant: bool
+}
+
 pub struct SymbolTable<'a> {
-    pub symbols: RefCell<HashMap<String, SymbolValue>>,
+    pub symbols: RefCell<HashMap<String, SymbolEntry>>,
     parent_context: Option<&'a ExecutionContext<'a>>,
 }
 
@@ -148,7 +158,7 @@ impl<'a> ExecutionContext<'a> {
 unsafe impl<'a> Sync for SymbolTable<'a> {}
 
 impl<'a> SymbolTable<'a> {
-    pub fn new(symbols: HashMap<String, SymbolValue>) -> Self {
+    pub fn new(symbols: HashMap<String, SymbolEntry>) -> Self {
         SymbolTable {
             symbols: RefCell::new(symbols),
             parent_context: None,
@@ -158,13 +168,13 @@ impl<'a> SymbolTable<'a> {
     pub fn get(&self, identifier: &str) -> Option<SymbolValue> {
         let symbols = self.symbols.borrow();
         if let Some(value) = symbols.get(identifier) {
-            return Some(*value);
+            return Some(value.value);
         }
 
         let mut parent_context = &self.parent_context;
         while let Some(parent) = parent_context {
             if let Some(value) = parent.symbol_table.symbols.borrow().get(identifier) {
-                return Some(*value);
+                return Some(value.value);
             }
             parent_context = &parent.parent_context;
         }
@@ -175,7 +185,7 @@ impl<'a> SymbolTable<'a> {
     pub fn set(&self, identifier: &str, value: SymbolValue) {
         self.symbols
             .borrow_mut()
-            .insert(identifier.to_string(), value);
+            .insert(identifier.to_string(), SymbolEntry { value, is_constant: false });
     }
 
     pub fn remove(&self, identifier: &str) {

@@ -20,14 +20,14 @@ impl fmt::Debug for Token {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LogicType {
     NOT,
     AND,
     OR,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CompType {
     EE,
     NE,
@@ -37,7 +37,7 @@ pub enum CompType {
     GTE,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OperationTokenType {
     EQ,
     Arithmetic(char),
@@ -416,21 +416,17 @@ impl<'a> Lexer<'a> {
             match self.byte {
                 Some(b @ b'0'..=b'9') => {
                     // update the power
-                    power = power * 10f64;
-                    // don't calculate if it's zero, as nothing will happen
-                    if *b == b'0' {
-                        continue;
-                    }
-                    // update the number
-                    decimal_point = decimal_point + (f64::from(b - b'0') / power);
-                    // get the next byte
+                    power *= 10_f64;
                     self.advance();
+                    // update the number
+                    decimal_point += f64::from(b - b'0') / power;
                 }
                 Some(_) => {
+                    let float = number as f64 + decimal_point;
                     let token = Token {
                         // this is a lossy conversion and there will be no stoping from capturing
                         // this error at runtime atm. TODO
-                        value: TokenType::Float(f64::from(number as u32) + decimal_point),
+                        value: TokenType::Float(float),
                         source: Location {
                             start: starting_position,
                             end: Position {
@@ -534,12 +530,12 @@ impl<'a> Lexer<'a> {
                 let end = self.src;
                 self.advance();
                 Some(Ok(Token {
-                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::GTE)),
+                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::LTE)),
                     source: Location { start, end },
                 }))
             }
             Some(_) => Some(Ok(Token {
-                value: TokenType::Operation(OperationTokenType::Comparison(CompType::GT)),
+                value: TokenType::Operation(OperationTokenType::Comparison(CompType::LT)),
                 source: Location { start, end: start },
             })),
             None => None,
@@ -553,12 +549,12 @@ impl<'a> Lexer<'a> {
                 let end = self.src;
                 self.advance();
                 Some(Ok(Token {
-                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::LTE)),
+                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::GTE)),
                     source: Location { start, end },
                 }))
             }
             Some(_) => Some(Ok(Token {
-                value: TokenType::Operation(OperationTokenType::Comparison(CompType::LT)),
+                value: TokenType::Operation(OperationTokenType::Comparison(CompType::GT)),
                 source: Location { start, end: start },
             })),
             None => None,

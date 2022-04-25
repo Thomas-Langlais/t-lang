@@ -1,6 +1,10 @@
 use std::ops::{Add, Div, Mul, Sub};
 
-use super::{DivideByZeroError, ExecutionContext, InterpretedType, InterpreterError};
+use super::{
+    DivideByZeroError, ExecutionContext, Interpret, InterpretedType, InterpreterError,
+    InterpreterResult, TermNode, UnaryNode,
+};
+use crate::lexer::{CompType, LogicType};
 
 pub struct OpDivByZeroError {
     err_type: &'static str,
@@ -135,6 +139,76 @@ impl PartialOrd for InterpretedType {
                 let i1 = &unsafe { ceiled.to_int_unchecked::<i64>() };
                 i1.partial_cmp(n2)
             }
+        }
+    }
+}
+
+impl TermNode {
+    pub fn arith_op(
+        &self,
+        arith_type: char,
+        lhs: InterpretedType,
+        rhs: InterpretedType,
+        context: &ExecutionContext,
+    ) -> InterpreterResult {
+        match arith_type {
+            '+' => Ok(lhs + rhs),
+            '-' => Ok(lhs - rhs),
+            '*' => Ok(lhs * rhs),
+            '/' => match lhs / rhs {
+                Ok(res) => Ok(res),
+                Err(err) => Err(err.into(context)),
+            },
+            _ => unreachable!("unknown arithmetic operation"),
+        }
+    }
+
+    pub fn comp_op(
+        &self,
+        cmp_type: CompType,
+        lhs: InterpretedType,
+        rhs: InterpretedType,
+    ) -> InterpreterResult {
+        match cmp_type {
+            CompType::EE => Ok(InterpretedType::Int(i64::from(lhs == rhs))),
+            CompType::NE => Ok(InterpretedType::Int(i64::from(lhs != rhs))),
+            CompType::GT => Ok(InterpretedType::Int(i64::from(lhs > rhs))),
+            CompType::GTE => Ok(InterpretedType::Int(i64::from(lhs >= rhs))),
+            CompType::LT => Ok(InterpretedType::Int(i64::from(lhs < rhs))),
+            CompType::LTE => Ok(InterpretedType::Int(i64::from(lhs <= rhs))),
+        }
+    }
+
+    pub fn logic_op(&self, lgc_type: LogicType, lhs: bool, rhs: bool) -> InterpreterResult {
+        match lgc_type {
+            LogicType::AND => Ok(InterpretedType::Int(i64::from(lhs && rhs))),
+            LogicType::OR => Ok(InterpretedType::Int(i64::from(lhs || rhs))),
+            _ => unreachable!("Cannot interpret ! operation for a term"),
+        }
+    }
+}
+
+impl UnaryNode {
+    pub fn arith_op(&self, arith_type: char, context: &mut ExecutionContext) -> InterpreterResult {
+        match arith_type {
+            '+' => self.node.interpret(context),
+            '-' => {
+                let rhs = self.node.interpret(context)?;
+                context.current_pos = self.pos;
+                Ok(InterpretedType::Int(-1) * rhs)
+            }
+            _ => unreachable!("A unary arithmetic operation can only be -/+"),
+        }
+    }
+
+    pub fn logic_op(&self, lgc_type: LogicType, context: &mut ExecutionContext) -> InterpreterResult {
+        match lgc_type {
+            LogicType::NOT => {
+                let rhs = self.node.interpret(context)?;
+                context.current_pos = self.pos;
+                Ok(InterpretedType::Int(i64::from(!bool::from(rhs))))
+            }
+            _ => unreachable!("A unary operator can only be !"),
         }
     }
 }

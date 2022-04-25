@@ -1,11 +1,11 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FormatResult};
 
 use crate::lexer::{OperationTokenType, TokenType};
 use crate::parser::{FactorNode, SyntaxNode, TermNode, UnaryNode, VariableNode};
 
 mod operations;
+pub mod symbol_table;
+pub use symbol_table::{SymbolTable, SymbolEntry, SymbolValue};
 
 pub enum InterpretedType {
     Float(f64),
@@ -75,23 +75,6 @@ impl Display for InterpreterError {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum SymbolValue {
-    Int(i64),
-    Float(f64),
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct SymbolEntry {
-    pub value: SymbolValue,
-    pub is_constant: bool,
-}
-
-pub struct SymbolTable<'a> {
-    pub symbols: RefCell<HashMap<String, SymbolEntry>>,
-    parent_context: Option<&'a ExecutionContext<'a>>,
-}
-
 pub struct ExecutionContext<'a> {
     source_text: String,
     current_pos: (usize, usize),
@@ -107,67 +90,6 @@ impl<'a> ExecutionContext<'a> {
             parent_context: None,
             current_pos: (0, 0),
         }
-    }
-}
-
-unsafe impl<'a> Sync for SymbolTable<'a> {}
-
-impl<'a> SymbolTable<'a> {
-    pub fn new(symbols: HashMap<String, SymbolEntry>) -> Self {
-        SymbolTable {
-            symbols: RefCell::new(symbols),
-            parent_context: None,
-        }
-    }
-
-    pub fn get(&self, identifier: &str) -> Option<SymbolValue> {
-        let symbols = self.symbols.borrow();
-        if let Some(value) = symbols.get(identifier) {
-            return Some(value.value);
-        }
-
-        let mut parent_context = &self.parent_context;
-        while let Some(parent) = parent_context {
-            if let Some(value) = parent.symbol_table.symbols.borrow().get(identifier) {
-                return Some(value.value);
-            }
-            parent_context = &parent.parent_context;
-        }
-
-        None
-    }
-
-    pub fn set(&self, identifier: &str, value: SymbolValue) -> Result<(), RTError> {
-        let mut symbols = self.symbols.borrow_mut();
-        
-        let symbol_entry = match symbols.get(identifier) {
-            Some(symbol) => {
-                if symbol.is_constant {
-                    return Err(RTError {
-                        name: "Constant variable write",
-                        details: "Cannot overwrite constant variables: e.g. 'true' and `false`",
-                    });
-                }
-                *symbol
-            },
-            None => SymbolEntry {
-                value,
-                is_constant: false
-            }
-        };
-
-        symbols.insert(
-            identifier.to_string(),
-            SymbolEntry {
-                value,
-                ..symbol_entry
-            },
-        );
-        Ok(())
-    }
-
-    pub fn remove(&self, identifier: &str) {
-        self.symbols.borrow_mut().remove(identifier);
     }
 }
 

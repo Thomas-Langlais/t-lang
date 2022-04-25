@@ -45,7 +45,7 @@ impl SymbolNotFoundError {
         SymbolNotFoundError {
             name: String::from("Symbol not found"),
             details: String::from(details),
-            source: source,
+            source,
             line,
             start,
             end,
@@ -217,7 +217,6 @@ impl TermNode {
         cmp_type: CompType,
         lhs: InterpretedType,
         rhs: InterpretedType,
-        context: &ExecutionContext,
     ) -> InterpreterResult {
         match cmp_type {
             CompType::EE => Ok(InterpretedType::Int(i64::from(lhs == rhs))),
@@ -234,7 +233,6 @@ impl TermNode {
         lgc_type: LogicType,
         lhs: bool,
         rhs: bool,
-        context: &ExecutionContext,
     ) -> InterpreterResult {
         match lgc_type {
             LogicType::AND => {
@@ -375,10 +373,10 @@ impl<'a> Interpret<'a> for TermNode {
                 self.arith_op(arith_type, lhs, rhs, context)
             }
             TokenType::Operation(OperationTokenType::Comparison(cmp_type)) => {
-                self.comp_op(cmp_type, lhs, rhs, context)
+                self.comp_op(cmp_type, lhs, rhs)
             }
             TokenType::Operation(OperationTokenType::Logic(lgc_type)) => {
-                self.logic_op(lgc_type, bool::from(lhs), bool::from(rhs), context)
+                self.logic_op(lgc_type, bool::from(lhs), bool::from(rhs))
             }
             _ => unreachable!("Only +,-,*,/ are allowed\nop {:?}", self.op_token),
         }

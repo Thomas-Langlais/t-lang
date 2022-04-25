@@ -1,29 +1,10 @@
 use std::ops::{Add, Div, Mul, Sub};
 
 use super::{
-    DivideByZeroError, ExecutionContext, Interpret, InterpretedType, InterpreterError,
-    InterpreterResult, TermNode, UnaryNode,
+    ExecutionContext, Interpret, InterpretedType,
+    InterpreterResult, RTError, TermNode, UnaryNode,
 };
 use crate::lexer::{CompType, LogicType};
-
-pub struct OpDivByZeroError {
-    err_type: &'static str,
-    details: &'static str,
-}
-
-impl<'a> OpDivByZeroError {
-    pub fn into(self, context: &ExecutionContext) -> InterpreterError {
-        let (start, end) = context.current_pos;
-        InterpreterError::DivideByZero(DivideByZeroError {
-            name: self.err_type,
-            details: self.details,
-            source: context.source_text.clone(),
-            start,
-            end,
-            line: 0,
-        })
-    }
-}
 
 impl Add for InterpretedType {
     type Output = Self;
@@ -77,12 +58,12 @@ impl Mul for InterpretedType {
 }
 
 impl Div for InterpretedType {
-    type Output = Result<InterpretedType, OpDivByZeroError>;
+    type Output = Result<InterpretedType, RTError>;
 
     fn div(self, rhs: Self) -> Self::Output {
         if rhs.is_zero() {
-            return Err(OpDivByZeroError {
-                err_type: "Divide by zero",
+            return Err(RTError {
+                name: "Divide by zero",
                 details: "The right hand side of the division expression is 0",
             });
         }

@@ -12,47 +12,32 @@ pub enum InterpretedType {
     Int(i64),
 }
 
+#[derive(Debug)]
 pub struct RTError {
     name: &'static str,
-    details: &'static str
-}
-
-pub struct DivideByZeroError {
-    name: &'static str,
     details: &'static str,
-    source: String,
-    line: usize,
-    start: usize,
-    end: usize,
-}
-pub struct SymbolNotFoundError {
-    name: String,
-    details: String,
-    source: String,
-    line: usize,
-    start: usize,
-    end: usize,
-}
-pub enum InterpreterError {
-    DivideByZero(DivideByZeroError),
-    SymbolNotFound(SymbolNotFoundError),
 }
 
-impl SymbolNotFoundError {
-    fn new(
-        details: &str,
-        source: String,
-        start: usize,
-        end: usize,
-        line: usize,
-    ) -> SymbolNotFoundError {
-        SymbolNotFoundError {
-            name: String::from("Symbol not found"),
-            details: String::from(details),
-            source,
-            line,
+#[derive(Debug)]
+pub struct InterpreterError {
+    pub name: &'static str,
+    pub details: &'static str,
+    pub source: String,
+    pub line: usize,
+    pub start: usize,
+    pub end: usize,
+}
+
+impl<'a> RTError {
+    pub fn into(self, context: &ExecutionContext) -> InterpreterError {
+        let (start, end) = context.current_pos;
+        InterpreterError {
+            name: self.name,
+            details: self.details,
+            source: context.source_text.clone(),
             start,
             end,
+            line: 0,
         }
     }
 }
@@ -70,15 +55,6 @@ impl Display for InterpretedType {
 
 impl Display for InterpreterError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
-        match self {
-            InterpreterError::DivideByZero(err) => err.fmt(f),
-            InterpreterError::SymbolNotFound(err) => err.fmt(f),
-        }
-    }
-}
-
-impl Display for DivideByZeroError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
         let line_header = format!("line {line}: ", line = self.line + 1);
 
         let underline = (0..self.start + line_header.len())
@@ -86,28 +62,7 @@ impl Display for DivideByZeroError {
             .chain((self.start..=self.end).map(|_| '^'))
             .collect::<String>();
 
-        let source = &self.source;
-
-        write!(
-            f,
-            "{name} - {details}\n\
-            {line_header}{source}\n\
-            {underline}",
-            name = self.name,
-            details = self.details
-        )
-    }
-}
-impl Display for SymbolNotFoundError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
-        let line_header = format!("line {line}: ", line = self.line + 1);
-
-        let underline = (0..self.start + line_header.len())
-            .map(|_| ' ')
-            .chain((self.start..=self.end).map(|_| '^'))
-            .collect::<String>();
-
-        let source = &self.source;
+        let source = &self.source.lines().next().unwrap();
 
         write!(
             f,
@@ -129,7 +84,7 @@ pub enum SymbolValue {
 #[derive(Debug, Clone, Copy)]
 pub struct SymbolEntry {
     pub value: SymbolValue,
-    pub is_constant: bool
+    pub is_constant: bool,
 }
 
 pub struct SymbolTable<'a> {
@@ -182,10 +137,33 @@ impl<'a> SymbolTable<'a> {
         None
     }
 
-    pub fn set(&self, identifier: &str, value: SymbolValue) {
-        self.symbols
-            .borrow_mut()
-            .insert(identifier.to_string(), SymbolEntry { value, is_constant: false });
+    pub fn set(&self, identifier: &str, value: SymbolValue) -> Result<(), RTError> {
+        let mut symbols = self.symbols.borrow_mut();
+        
+        let symbol_entry = match symbols.get(identifier) {
+            Some(symbol) => {
+                if symbol.is_constant {
+                    return Err(RTError {
+                        name: "Constant variable write",
+                        details: "Cannot overwrite constant variables: e.g. 'true' and `false`",
+                    });
+                }
+                *symbol
+            },
+            None => SymbolEntry {
+                value,
+                is_constant: false
+            }
+        };
+
+        symbols.insert(
+            identifier.to_string(),
+            SymbolEntry {
+                value,
+                ..symbol_entry
+            },
+        );
+        Ok(())
     }
 
     pub fn remove(&self, identifier: &str) {
@@ -228,13 +206,15 @@ impl<'a> Interpret<'a> for VariableNode {
                     let result = expression.interpret(context)?;
 
                     context.current_pos = self.pos;
-                    context.symbol_table.set(
+                    if let Err(err) = context.symbol_table.set(
                         identifier,
                         match result {
                             InterpretedType::Int(int) => SymbolValue::Int(int),
                             InterpretedType::Float(float) => SymbolValue::Float(float),
                         },
-                    );
+                    ) {
+                        return Err(err.into(context));
+                    }
 
                     Ok(result)
                 } else {
@@ -242,13 +222,14 @@ impl<'a> Interpret<'a> for VariableNode {
                     let value_result = context.symbol_table.get(identifier);
                     if value_result.is_none() {
                         let (start, end) = context.current_pos;
-                        return Err(InterpreterError::SymbolNotFound(SymbolNotFoundError::new(
-                            "The variable does not exist in the current context",
-                            context.source_text.clone(),
+                        return Err(InterpreterError {
+                            name: "Symbol not found",
+                            details: "The variable does not exist in the current context",
+                            source: context.source_text.clone(),
                             start,
                             end,
-                            0,
-                        )));
+                            line: 0,
+                        });
                     }
 
                     let value = unsafe { value_result.unwrap_unchecked() };

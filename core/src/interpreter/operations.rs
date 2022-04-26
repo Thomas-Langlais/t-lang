@@ -1,8 +1,7 @@
 use std::ops::{Add, Div, Mul, Sub};
 
 use super::{
-    ExecutionContext, Interpret, InterpretedType,
-    InterpreterResult, RTError, TermNode, UnaryNode,
+    ExecutionContext, Interpret, InterpretedType, InterpreterResult, RTError, TermNode, UnaryNode,
 };
 use crate::lexer::{CompType, LogicType};
 
@@ -18,6 +17,22 @@ impl Add for InterpretedType {
             }
             (InterpretedType::Float(l), InterpretedType::Int(r)) => {
                 InterpretedType::Float(l + r as f64)
+            }
+            // boolean handling
+            (InterpretedType::Bool(l), InterpretedType::Bool(r)) => {
+                InterpretedType::Int(l as i64 + r as i64)
+            }
+            (InterpretedType::Bool(l), InterpretedType::Int(r)) => {
+                InterpretedType::Int(l as i64 + r)
+            }
+            (InterpretedType::Bool(l), InterpretedType::Float(r)) => {
+                InterpretedType::Float(if l { 1.0f64 + r } else { r })
+            }
+            (InterpretedType::Int(l), InterpretedType::Bool(r)) => {
+                InterpretedType::Int(l + r as i64)
+            }
+            (InterpretedType::Float(l), InterpretedType::Bool(r)) => {
+                InterpretedType::Float(if r { l + 1.0f64 } else { l })
             }
         }
     }
@@ -36,6 +51,22 @@ impl Sub for InterpretedType {
             (InterpretedType::Float(l), InterpretedType::Int(r)) => {
                 InterpretedType::Float(l - r as f64)
             }
+            // boolean handling
+            (InterpretedType::Bool(l), InterpretedType::Bool(r)) => {
+                InterpretedType::Int(l as i64 - r as i64)
+            }
+            (InterpretedType::Bool(l), InterpretedType::Int(r)) => {
+                InterpretedType::Int(l as i64 - r)
+            }
+            (InterpretedType::Bool(l), InterpretedType::Float(r)) => {
+                InterpretedType::Float(if l { 1.0f64 - r } else { -r })
+            }
+            (InterpretedType::Int(l), InterpretedType::Bool(r)) => {
+                InterpretedType::Int(l - r as i64)
+            }
+            (InterpretedType::Float(l), InterpretedType::Bool(r)) => {
+                InterpretedType::Float(if r { l - 1.0f64 } else { l })
+            }
         }
     }
 }
@@ -52,6 +83,22 @@ impl Mul for InterpretedType {
             }
             (InterpretedType::Float(l), InterpretedType::Int(r)) => {
                 InterpretedType::Float(l * r as f64)
+            }
+            // boolean handling
+            (InterpretedType::Bool(l), InterpretedType::Bool(r)) => {
+                InterpretedType::Int(l as i64 * r as i64)
+            }
+            (InterpretedType::Bool(l), InterpretedType::Int(r)) => {
+                InterpretedType::Int(l as i64 * r)
+            }
+            (InterpretedType::Bool(l), InterpretedType::Float(r)) => {
+                InterpretedType::Float(if l { r } else { 0.0 })
+            }
+            (InterpretedType::Int(l), InterpretedType::Bool(r)) => {
+                InterpretedType::Int(l * r as i64)
+            }
+            (InterpretedType::Float(l), InterpretedType::Bool(r)) => {
+                InterpretedType::Float(if r { l } else { 0.0 })
             }
         }
     }
@@ -79,6 +126,19 @@ impl Div for InterpretedType {
             (InterpretedType::Float(l), InterpretedType::Int(r)) => {
                 Ok(InterpretedType::Float(l / r as f64))
             }
+            // boolean handling
+            (InterpretedType::Bool(l), InterpretedType::Bool(r)) => {
+                Ok(InterpretedType::Int(l as i64 / r as i64))
+            }
+            (InterpretedType::Bool(l), InterpretedType::Int(r)) => {
+                Ok(InterpretedType::Int(l as i64 / r))
+            }
+            (InterpretedType::Bool(l), InterpretedType::Float(r)) => {
+                Ok(InterpretedType::Float(if l { 1.0f64 / r } else { 0.0 }))
+            }
+            // it will always be the left side, because we handle div by zero above
+            (InterpretedType::Int(l), InterpretedType::Bool(_)) => Ok(InterpretedType::Int(l)),
+            (InterpretedType::Float(l), InterpretedType::Bool(_)) => Ok(InterpretedType::Float(l)),
         }
     }
 }
@@ -88,6 +148,7 @@ impl InterpretedType {
         match self {
             Self::Float(n) => n == &0.0,
             Self::Int(n) => n == &0,
+            Self::Bool(n) => !n,
         }
     }
 }
@@ -97,8 +158,36 @@ impl PartialEq for InterpretedType {
         match (self, other) {
             (Self::Int(n1), Self::Int(n2)) => n1 == n2,
             (Self::Float(n1), Self::Float(n2)) => n1 == n2,
-            (Self::Int(n1), Self::Float(n2)) => n1 == &unsafe { n2.to_int_unchecked::<i64>() },
-            (Self::Float(n1), Self::Int(n2)) => &(unsafe { n1.to_int_unchecked::<i64>() }) == n2,
+            // because to_int_unchecked removes the float fraction representation,
+            // it must ensure the float is it's ceiling before comparing
+            (Self::Int(n1), Self::Float(n2)) => {
+                n1 == &unsafe { n2.ceil().to_int_unchecked::<i64>() }
+            }
+            (Self::Float(n1), Self::Int(n2)) => {
+                &(unsafe { n1.ceil().to_int_unchecked::<i64>() }) == n2
+            }
+            // boolean handling
+            (InterpretedType::Bool(l), InterpretedType::Bool(r)) => l == r,
+            (InterpretedType::Bool(l), InterpretedType::Int(r)) => *l as i64 == *r,
+            (InterpretedType::Bool(l), InterpretedType::Float(r)) => {
+                *r == {
+                    if *l {
+                        1.0f64
+                    } else {
+                        0.0f64
+                    }
+                }
+            }
+            (InterpretedType::Int(l), InterpretedType::Bool(r)) => *l == *r as i64,
+            (InterpretedType::Float(l), InterpretedType::Bool(r)) => {
+                *l == {
+                    if *r {
+                        1.0f64
+                    } else {
+                        0.0f64
+                    }
+                }
+            }
         }
     }
 }
@@ -120,6 +209,25 @@ impl PartialOrd for InterpretedType {
                 let i1 = &unsafe { ceiled.to_int_unchecked::<i64>() };
                 i1.partial_cmp(n2)
             }
+            // boolean handling
+            (InterpretedType::Bool(l), InterpretedType::Bool(r)) => l.partial_cmp(r),
+            (InterpretedType::Bool(l), InterpretedType::Int(r)) => (*l as i64).partial_cmp(r),
+            (InterpretedType::Bool(l), InterpretedType::Float(r)) => {
+                if *l {
+                    1.0f64
+                } else {
+                    0.0f64
+                }
+            }
+            .partial_cmp(r),
+            (InterpretedType::Int(l), InterpretedType::Bool(r)) => l.partial_cmp(&(*r as i64)),
+            (InterpretedType::Float(l), InterpretedType::Bool(r)) => l.partial_cmp({
+                if *r {
+                    &1.0f64
+                } else {
+                    &0.0f64
+                }
+            }),
         }
     }
 }
@@ -151,19 +259,19 @@ impl TermNode {
         rhs: InterpretedType,
     ) -> InterpreterResult {
         match cmp_type {
-            CompType::EE => Ok(InterpretedType::Int(i64::from(lhs == rhs))),
-            CompType::NE => Ok(InterpretedType::Int(i64::from(lhs != rhs))),
-            CompType::GT => Ok(InterpretedType::Int(i64::from(lhs > rhs))),
-            CompType::GTE => Ok(InterpretedType::Int(i64::from(lhs >= rhs))),
-            CompType::LT => Ok(InterpretedType::Int(i64::from(lhs < rhs))),
-            CompType::LTE => Ok(InterpretedType::Int(i64::from(lhs <= rhs))),
+            CompType::EE => Ok(InterpretedType::Bool(lhs == rhs)),
+            CompType::NE => Ok(InterpretedType::Bool(lhs != rhs)),
+            CompType::GT => Ok(InterpretedType::Bool(lhs > rhs)),
+            CompType::GTE => Ok(InterpretedType::Bool(lhs >= rhs)),
+            CompType::LT => Ok(InterpretedType::Bool(lhs < rhs)),
+            CompType::LTE => Ok(InterpretedType::Bool(lhs <= rhs)),
         }
     }
 
     pub fn logic_op(&self, lgc_type: LogicType, lhs: bool, rhs: bool) -> InterpreterResult {
         match lgc_type {
-            LogicType::AND => Ok(InterpretedType::Int(i64::from(lhs && rhs))),
-            LogicType::OR => Ok(InterpretedType::Int(i64::from(lhs || rhs))),
+            LogicType::AND => Ok(InterpretedType::Bool(lhs && rhs)),
+            LogicType::OR => Ok(InterpretedType::Bool(lhs || rhs)),
             _ => unreachable!("Cannot interpret ! operation for a term"),
         }
     }
@@ -182,12 +290,16 @@ impl UnaryNode {
         }
     }
 
-    pub fn logic_op(&self, lgc_type: LogicType, context: &mut ExecutionContext) -> InterpreterResult {
+    pub fn logic_op(
+        &self,
+        lgc_type: LogicType,
+        context: &mut ExecutionContext,
+    ) -> InterpreterResult {
         match lgc_type {
             LogicType::NOT => {
                 let rhs = self.node.interpret(context)?;
                 context.current_pos = self.pos;
-                Ok(InterpretedType::Int(i64::from(!bool::from(rhs))))
+                Ok(InterpretedType::Bool(!bool::from(rhs)))
             }
             _ => unreachable!("A unary operator can only be !"),
         }

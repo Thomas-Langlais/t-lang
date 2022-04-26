@@ -5,11 +5,12 @@ use crate::parser::{FactorNode, SyntaxNode, TermNode, UnaryNode, VariableNode};
 
 mod operations;
 pub mod symbol_table;
-pub use symbol_table::{SymbolTable, SymbolEntry, SymbolValue};
+pub use symbol_table::{SymbolEntry, SymbolTable, SymbolValue};
 
 pub enum InterpretedType {
     Float(f64),
     Int(i64),
+    Bool(bool),
 }
 
 #[derive(Debug)]
@@ -49,6 +50,7 @@ impl Display for InterpretedType {
         match self {
             InterpretedType::Int(int) => write!(f, "{}", int),
             InterpretedType::Float(float) => write!(f, "{}", float),
+            InterpretedType::Bool(b) => write!(f, "{}", b),
         }
     }
 }
@@ -98,6 +100,26 @@ impl From<InterpretedType> for bool {
         match value {
             InterpretedType::Float(float) => float != 0.0,
             InterpretedType::Int(int) => int != 0,
+            InterpretedType::Bool(b) => b,
+        }
+    }
+}
+
+impl<'a> From<&InterpretedType> for SymbolValue {
+    fn from(val: &InterpretedType) -> Self {
+        match val {
+            InterpretedType::Int(n) => SymbolValue::Int(*n),
+            InterpretedType::Float(n) => SymbolValue::Float(*n),
+            InterpretedType::Bool(n) => SymbolValue::Bool(*n),
+        }
+    }
+}
+impl From<SymbolValue> for InterpretedType {
+    fn from(val: SymbolValue) -> Self {
+        match val {
+            SymbolValue::Int(n) => InterpretedType::Int(n),
+            SymbolValue::Float(n) => InterpretedType::Float(n),
+            SymbolValue::Bool(n) => InterpretedType::Bool(n),
         }
     }
 }
@@ -128,13 +150,10 @@ impl<'a> Interpret<'a> for VariableNode {
                     let result = expression.interpret(context)?;
 
                     context.current_pos = self.pos;
-                    if let Err(err) = context.symbol_table.set(
-                        identifier,
-                        match result {
-                            InterpretedType::Int(int) => SymbolValue::Int(int),
-                            InterpretedType::Float(float) => SymbolValue::Float(float),
-                        },
-                    ) {
+                    if let Err(err) = context
+                        .symbol_table
+                        .set(identifier, SymbolValue::from(&result))
+                    {
                         return Err(err.into(context));
                     }
 
@@ -155,10 +174,7 @@ impl<'a> Interpret<'a> for VariableNode {
                     }
 
                     let value = unsafe { value_result.unwrap_unchecked() };
-                    match value {
-                        SymbolValue::Int(int) => Ok(InterpretedType::Int(int)),
-                        SymbolValue::Float(float) => Ok(InterpretedType::Float(float)),
-                    }
+                    Ok(InterpretedType::from(value))
                 }
             }
             _ => panic!("A variable node can only have an identifier token"),

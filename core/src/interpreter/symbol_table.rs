@@ -7,6 +7,7 @@ use super::{ExecutionContext, RTError};
 pub enum SymbolValue {
     Int(i64),
     Float(f64),
+    Bool(bool)
 }
 
 #[derive(Debug, Clone, Copy)]

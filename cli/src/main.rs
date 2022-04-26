@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 
 // this is a form of inport in JS
-use core::interpreter::{ExecutionContext, Interpret, SymbolTable};
+use core::interpreter::{ExecutionContext, Interpret, SymbolTable, SymbolEntry, SymbolValue};
 use core::lexer::Lexer;
 use core::parser::Parser;
 
@@ -10,7 +10,16 @@ fn main() {
     print!("T-Lang Console\n");
     print!("--------------------------------------\n");
 
-    let global_symbol_table = SymbolTable::new(HashMap::new());
+    let global_symbol_table = SymbolTable::new(HashMap::from([
+        (String::from("true"), SymbolEntry {
+            value: SymbolValue::Bool(true),
+            is_constant: true,
+        }),
+        (String::from("false"), SymbolEntry {
+            value: SymbolValue::Bool(false),
+            is_constant: true,
+        })
+    ]));
 
     loop {
         print!("> ");

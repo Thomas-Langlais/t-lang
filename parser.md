@@ -6,8 +6,16 @@ This is used to restrict what is allowed to be used for programming purposes.
 [link](http://www.cburch.com/cs/150/reading/grammar/index.html)
 
 # Grammar rules
-expression = KW:LET IDENTIFIER EQ expression 
-           = term (PLUS|MINUS term)*
+```
+expression = KW:LET IDENTIFIER EQ expr 
+           = expr
+
+expr       = comp_expr ((AND|OR) comp_expr)*
+
+comp_expr  = NOT comp_expr
+           = arith_expr ((EE|NE|LT|GT|LTE|GTE) arith_expr)*
+
+arith_expr = term (PLUS|MINUS term)*
 
 term       = factor (MUL|DIV factor)*
 
@@ -16,3 +24,19 @@ factor     = atom
 
 atom       = INT|FLOAT|IDENTIFIER
            = LParen expression RParen
+```
+
+           
+# Token type constant values appendix
+| token | text |
+| - | - |
+| EQ | `=` |
+| NOT | `!` |
+| AND | `&&` |
+| OR | `||` |
+| EE | `==` |
+| NE | `!=` |
+| LT | `<` |
+| GT | `>` |
+| LTE | `<=` |
+| GTE | `>=` |

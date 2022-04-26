@@ -12,8 +12,37 @@ pub struct Token {
 
 impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:#?}", self.value)
+        if f.alternate() {
+            write!(f, "{:#?}", self.value)
+        } else {
+            write!(f, "{:?}", self.value)
+        }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LogicType {
+    NOT,
+    AND,
+    OR,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CompType {
+    EE,
+    NE,
+    LT,
+    GT,
+    LTE,
+    GTE,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum OperationTokenType {
+    EQ,
+    Arithmetic(char),
+    Logic(LogicType),
+    Comparison(CompType),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -22,7 +51,7 @@ pub enum TokenType {
     Identifier(String),
     LParen(char),
     RParen(char),
-    Operation(char),
+    Operation(OperationTokenType),
     Int(i64),
     Float(f64),
     EOF,
@@ -39,6 +68,40 @@ impl ToString for TokenType {
             TokenType::Int(int) => int.to_string(),
             TokenType::Float(float) => float.to_string(),
             TokenType::EOF => "\\n".to_string(),
+        }
+    }
+}
+
+impl ToString for OperationTokenType {
+    fn to_string(&self) -> String {
+        match self {
+            Self::EQ => "=".to_string(),
+            Self::Arithmetic(op) => op.to_string(),
+            Self::Comparison(cmp) => cmp.to_string(),
+            Self::Logic(lgc) => lgc.to_string(),
+        }
+    }
+}
+
+impl ToString for CompType {
+    fn to_string(&self) -> String {
+        match self {
+            Self::EE => "==".to_string(),
+            Self::NE => "!=".to_string(),
+            Self::LT => "<".to_string(),
+            Self::GT => ">".to_string(),
+            Self::LTE => "<=".to_string(),
+            Self::GTE => ">=".to_string(),
+        }
+    }
+}
+
+impl ToString for LogicType {
+    fn to_string(&self) -> String {
+        match self {
+            Self::AND => "&&".to_string(),
+            Self::OR => "||".to_string(),
+            Self::NOT => "!".to_string(),
         }
     }
 }
@@ -121,10 +184,10 @@ impl<'a> Iterator for Lexer<'a> {
                     // implement here.
                     break self.parse_number(self.src);
                 }
-                Some(op @ (b'+' | b'-' | b'*' | b'/' | b'=')) => {
+                Some(op @ (b'+' | b'-' | b'*' | b'/')) => {
                     // create the token
                     let token = Token {
-                        value: TokenType::Operation(*op as char),
+                        value: TokenType::Operation(OperationTokenType::Arithmetic(*op as char)),
                         source: Location {
                             start: self.src,
                             end: self.src,
@@ -159,6 +222,24 @@ impl<'a> Iterator for Lexer<'a> {
                     // advance the iterator context to the next char
                     self.advance();
                     break Some(Ok(token));
+                }
+                Some(b'=') => {
+                    break self.parse_equal(self.src);
+                }
+                Some(b'!') => {
+                    break self.parse_not(self.src);
+                }
+                Some(b'&') => {
+                    break self.parse_and(self.src);
+                }
+                Some(b'|') => {
+                    break self.parse_or(self.src);
+                }
+                Some(b'<') => {
+                    break self.parse_lesser(self.src);
+                }
+                Some(b'>') => {
+                    break self.parse_greater(self.src);
                 }
                 // this is empty as we don't need to do any parsing on white spaces or tabs
                 Some(b' ') | Some(b'\t') => {
@@ -335,21 +416,17 @@ impl<'a> Lexer<'a> {
             match self.byte {
                 Some(b @ b'0'..=b'9') => {
                     // update the power
-                    power = power * 10f64;
-                    // don't calculate if it's zero, as nothing will happen
-                    if *b == b'0' {
-                        continue;
-                    }
-                    // update the number
-                    decimal_point = decimal_point + (f64::from(b - b'0') / power);
-                    // get the next byte
+                    power *= 10_f64;
                     self.advance();
+                    // update the number
+                    decimal_point += f64::from(b - b'0') / power;
                 }
                 Some(_) => {
+                    let float = number as f64 + decimal_point;
                     let token = Token {
                         // this is a lossy conversion and there will be no stoping from capturing
                         // this error at runtime atm. TODO
-                        value: TokenType::Float(f64::from(number as u32) + decimal_point),
+                        value: TokenType::Float(float),
                         source: Location {
                             start: starting_position,
                             end: Position {
@@ -365,6 +442,122 @@ impl<'a> Lexer<'a> {
                     return None;
                 }
             }
+        }
+    }
+
+    fn parse_equal(&mut self, start: Position) -> Option<Result<Token, LexerError>> {
+        self.advance();
+        match self.byte {
+            Some(b'=') => {
+                let end = self.src;
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::EE)),
+                    source: Location { start, end },
+                }))
+            }
+            Some(_) => Some(Ok(Token {
+                value: TokenType::Operation(OperationTokenType::EQ),
+                source: Location { start, end: start },
+            })),
+            None => None,
+        }
+    }
+
+    fn parse_not(&mut self, start: Position) -> Option<Result<Token, LexerError>> {
+        self.advance();
+        match self.byte {
+            Some(b'=') => {
+                let end = self.src;
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::NE)),
+                    source: Location { start, end },
+                }))
+            }
+            Some(_) => Some(Ok(Token {
+                value: TokenType::Operation(OperationTokenType::Logic(LogicType::NOT)),
+                source: Location { start, end: start },
+            })),
+            None => None,
+        }
+    }
+
+    fn parse_and(&mut self, start: Position) -> Option<Result<Token, LexerError>> {
+        self.advance();
+        match self.byte {
+            Some(b'&') => {
+                let end = self.src;
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::Logic(LogicType::AND)),
+                    source: Location { start, end },
+                }))
+            }
+            _ => Some(Err(LexerError::new(
+                "Incomplete token error",
+                "Expected '&&'".to_string(),
+                self.src,
+                self.buffer.iter().map(|b| *b as char).collect(),
+            ))),
+        }
+    }
+
+    fn parse_or(&mut self, start: Position) -> Option<Result<Token, LexerError>> {
+        self.advance();
+        match self.byte {
+            Some(b'|') => {
+                let end = self.src;
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::Logic(LogicType::OR)),
+                    source: Location { start, end },
+                }))
+            }
+            _ => Some(Err(LexerError::new(
+                "Incomplete token error",
+                "Expected '||'".to_string(),
+                self.src,
+                self.buffer.iter().map(|b| *b as char).collect(),
+            ))),
+        }
+    }
+
+    fn parse_lesser(&mut self, start: Position) -> Option<Result<Token, LexerError>> {
+        self.advance();
+        match self.byte {
+            Some(b'=') => {
+                let end = self.src;
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::LTE)),
+                    source: Location { start, end },
+                }))
+            }
+            Some(_) => Some(Ok(Token {
+                value: TokenType::Operation(OperationTokenType::Comparison(CompType::LT)),
+                source: Location { start, end: start },
+            })),
+            None => None,
+        }
+    }
+
+    fn parse_greater(&mut self, start: Position) -> Option<Result<Token, LexerError>> {
+        self.advance();
+        match self.byte {
+            Some(b'=') => {
+                let end = self.src;
+                self.advance();
+                Some(Ok(Token {
+                    value: TokenType::Operation(OperationTokenType::Comparison(CompType::GTE)),
+                    source: Location { start, end },
+                }))
+            }
+            Some(_) => Some(Ok(Token {
+                value: TokenType::Operation(OperationTokenType::Comparison(CompType::GT)),
+                source: Location { start, end: start },
+            })),
+            None => None,
         }
     }
 }

@@ -1,7 +1,9 @@
 use std::fmt::{Display, Formatter, Result as FormatResult};
 
 use crate::lexer::{OperationTokenType, TokenType};
-use crate::parser::{FactorNode, SyntaxNode, TermNode, UnaryNode, VariableNode};
+use crate::parser::{
+    FactorNode, Statement, StatementList, SyntaxNode, TermNode, UnaryNode, VariableNode,
+};
 
 mod operations;
 pub mod symbol_table;
@@ -32,13 +34,14 @@ pub struct InterpreterError {
 impl<'a> RTError {
     pub fn into(self, context: &ExecutionContext) -> InterpreterError {
         let (start, end) = context.current_pos;
+        let line = context.line;
         InterpreterError {
             name: self.name,
             details: self.details,
             source: context.source_text.clone(),
             start,
             end,
-            line: 0,
+            line,
         }
     }
 }
@@ -147,7 +150,7 @@ pub trait Interpret<'a> {
 impl<'a> Interpret<'a> for SyntaxNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         match self {
-            Self::Statements(node) => todo!("Implement the interpret trait for statement list"),
+            Self::Statements(node) => node.interpret(context),
             Self::Variable(node) => node.interpret(context),
             Self::Factor(node) => node.interpret(context),
             Self::Unary(node) => node.interpret(context),
@@ -156,12 +159,35 @@ impl<'a> Interpret<'a> for SyntaxNode {
     }
 }
 
+impl<'a> Interpret<'a> for StatementList {
+    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+        // compile complains about last_result being unitialized without the assignment
+        // the parser has to output at least one statement, so let's a temp value
+        let mut last_result = InterpretedType::Int(0);
+
+        for statement in &self.statements {
+            last_result = statement.interpret(context)?;
+        }
+
+        Ok(last_result)
+    }
+}
+
+impl<'a> Interpret<'a> for Statement {
+    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+        self.inner.interpret(context)
+    }
+}
+
 impl<'a> Interpret<'a> for VariableNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         match &self.identifier_token.value {
             TokenType::Identifier(identifier) => {
                 if self.assign {
-                    let expression = unsafe { self.expression.as_ref().unwrap_unchecked() };
+                    let expression = match &self.expression {
+                        Some(expr) => expr,
+                        None => unreachable!("There should always be an expression"),
+                    };
                     let result = expression.interpret(context)?;
 
                     context.visit(self.pos, self.line);

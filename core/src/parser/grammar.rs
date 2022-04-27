@@ -276,12 +276,13 @@ impl<'a> Parser<'a> {
 
         // LINETERM* statement
         self.skip_line_term(&mut context);
+        let line = (self.current_token.as_ref().unwrap()).source.start.line;
         let stmt = context.register(self.statement())?;
         let pos = stmt.get_pos();
         let statement = Statement {
             inner: Box::new(stmt),
             pos,
-            line: 0, // impl the line transfer
+            line, // impl the line transfer
         };
         let mut statements = vec![statement];
 
@@ -295,6 +296,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
 
+                let line = (self.current_token.as_ref().unwrap()).source.start.line;
                 let stmt = match context.try_register(self.statement()) {
                     Ok(s) => s,
                     Err(Err(_)) => {
@@ -310,7 +312,7 @@ impl<'a> Parser<'a> {
                 let statement = Statement {
                     inner: Box::new(stmt),
                     pos,
-                    line: 0, // impl the line transfer
+                    line,
                 };
 
                 vec.push(statement);

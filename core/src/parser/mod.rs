@@ -3,7 +3,9 @@ use std::mem;
 use std::vec::IntoIter;
 
 use crate::interpreter::{ExecutionContext, Interpret, InterpreterResult};
-use crate::lexer::{CompType, LogicType, OperationTokenType, Position, Source, Token, TokenType};
+use crate::lexer::{Source, Token, TokenType};
+
+mod grammar;
 
 pub enum ParseError {
     SyntaxError(IllegalSyntaxError),
@@ -21,7 +23,7 @@ pub struct IllegalSyntaxError {
     pub name: String,
     pub details: String,
     pub source: String,
-    pub location: Source
+    pub location: Source,
 }
 
 impl IllegalSyntaxError {
@@ -162,19 +164,57 @@ impl<'a> Interpret<'a> for AbstractSyntaxTree {
     }
 }
 
+#[derive(Debug)]
+pub struct ParserOkRunner(ParseContext, SyntaxNode);
+pub struct ParserErrorRunner(ParseContext, ParseError);
+
+impl From<InternalParseResult> for ParserErrorRunner {
+    fn from(res: InternalParseResult) -> Self {
+        res.expect_err("This is infallible, there should NEVER the Result::Ok variant")
+    }
+}
+
 pub struct Parser<'a> {
     source: &'a [u8],
     tokens: IntoIter<Token>,
     current_token: Option<Token>,
 }
 
-pub type ParseResult = Result<AbstractSyntaxTree, ParseError>;
-type InternalParseResult = Result<SyntaxNode, ParseError>;
+#[derive(Clone, Copy, Default, Debug)]
+struct ParseContext {
+    advances: usize,
+    reverse_advances: usize,
+}
 
-mod grammar;
+impl ParseContext {
+    fn advance(&mut self) {
+        self.advances += 1;
+    }
+
+    fn register(mut self, result: InternalParseResult) -> Result<SyntaxNode, InternalParseResult> {
+        self.advances += match &result {
+            Ok(ParserOkRunner(ctx, _)) => ctx.advances,
+            Err(ParserErrorRunner(ctx, _)) => ctx.advances,
+        };
+
+        match result {
+            Ok(ParserOkRunner(_, node)) => Ok(node),
+            Err(ParserErrorRunner(_, err)) => Err(Err(ParserErrorRunner(self, err))),
+        }
+    }
+
+    fn success(self, node: SyntaxNode) -> InternalParseResult {
+        Ok(ParserOkRunner(self, node))
+    }
+
+    fn failure(self, node: ParseError) -> InternalParseResult {
+        Err(ParserErrorRunner(self, node))
+    }
+}
+
+type InternalParseResult = Result<ParserOkRunner, ParserErrorRunner>;
 
 impl<'a> Parser<'a> {
-
     pub fn new(tokens: Vec<Token>, source: &'a [u8]) -> Parser<'a> {
         let mut parser = Parser {
             source,
@@ -199,26 +239,18 @@ impl<'a> Parser<'a> {
         func: fn(&mut Parser) -> InternalParseResult,
         ops: &[TokenType],
     ) -> InternalParseResult {
-        let left_result = func(self);
-        if let Err(err) = left_result {
-            return Err(err);
-        }
+        let mut context = ParseContext::default();
+        let mut left = context.register(func(self))?;
 
-        let mut left = unsafe { left_result.unwrap_unchecked() };
         while let Some(token) = &self.current_token {
             if !ops.iter().any(|op| token.value == *op) {
                 break;
             }
 
             let op_token = mem::replace(&mut self.current_token, None).unwrap();
+            context.advance();
             self.advance();
-
-            let right_result = func(self);
-            if let Err(err) = right_result {
-                return Err(err);
-            }
-            let right = unsafe { right_result.unwrap_unchecked() };
-
+            let right = context.register(func(self))?;
             let (start, _) = left.get_pos();
             let (_, end) = right.get_pos();
             let pos = (start, end);
@@ -233,10 +265,10 @@ impl<'a> Parser<'a> {
             });
         }
 
-        Ok(left)
+        context.success(left)
     }
 
-    fn skip_line_term(&mut self) -> (usize, Source) {
+    fn skip_line_term(&mut self, context: &mut ParseContext) -> (usize, Source) {
         let mut newlines = 0;
         let mut last_source = Source::default();
 
@@ -247,6 +279,7 @@ impl<'a> Parser<'a> {
         {
             last_source = source;
             self.advance();
+            context.advance();
             newlines += 1;
         }
 
@@ -257,17 +290,17 @@ impl<'a> Parser<'a> {
         (newlines, last_source)
     }
 
-    pub fn generate_syntax_tree(&mut self) -> ParseResult {
+    pub fn generate_syntax_tree(&mut self) -> Result<AbstractSyntaxTree, ParseError> {
         let result = self.statements();
         let current_token = self.current_token.as_ref().unwrap();
         let token_type = &current_token.value;
         let token_location = current_token.source;
 
         match result {
-            Ok(node) if matches!(token_type, &TokenType::EOF) => {
+            Ok(ParserOkRunner(_, node)) if matches!(token_type, &TokenType::EOF) => {
                 Ok(AbstractSyntaxTree { inner: node })
             }
-            Err(err) => Err(err),
+            Err(ParserErrorRunner(_, err)) => Err(err),
             _ => {
                 return Err(ParseError::SyntaxError(
                     IllegalSyntaxError::new_invalid_syntax(

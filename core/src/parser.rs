@@ -3,7 +3,7 @@ use std::mem;
 use std::vec::IntoIter;
 
 use crate::interpreter::{ExecutionContext, Interpret, InterpreterResult};
-use crate::lexer::{CompType, Location, LogicType, OperationTokenType, Token, TokenType};
+use crate::lexer::{CompType, Source, LogicType, OperationTokenType, Token, TokenType};
 
 pub enum ParseError {
     SyntaxError(IllegalSyntaxError),
@@ -27,7 +27,7 @@ pub struct IllegalSyntaxError {
 }
 
 impl IllegalSyntaxError {
-    fn new(name: &str, details: &str, location: Location, source: String) -> IllegalSyntaxError {
+    fn new(name: &str, details: &str, location: Source, source: String) -> IllegalSyntaxError {
         IllegalSyntaxError {
             name: name.to_string(),
             details: details.to_string(),
@@ -38,7 +38,7 @@ impl IllegalSyntaxError {
         }
     }
 
-    fn new_invalid_syntax(details: &str, location: Location, source: String) -> IllegalSyntaxError {
+    fn new_invalid_syntax(details: &str, location: Source, source: String) -> IllegalSyntaxError {
         Self::new(&"Illegal Syntax", details, location, source)
     }
 }
@@ -140,7 +140,7 @@ impl<'a> Interpret<'a> for AbstractSyntaxTree {
 
 struct DebugItem {
     value: String,
-    location: Location,
+    location: Source,
 }
 
 pub struct Parser {

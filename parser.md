@@ -7,6 +7,10 @@ This is used to restrict what is allowed to be used for programming purposes.
 
 # Grammar rules
 ```
+statements = LINETERM* statement (LINETERM+ statement) LINETERM*
+
+statement  = expression
+
 expression = KW:LET IDENTIFIER EQ expr 
            = expr
 

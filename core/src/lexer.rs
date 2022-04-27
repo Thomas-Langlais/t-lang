@@ -5,7 +5,7 @@ use std::string::ToString;
 static KEYWORDS: &[&str] = &["let"];
 
 // Tokens structures
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
     pub value: TokenType,
     pub source: Source,

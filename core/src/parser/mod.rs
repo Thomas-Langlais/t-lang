@@ -3,7 +3,7 @@ use std::mem;
 use std::vec::IntoIter;
 
 use crate::interpreter::{ExecutionContext, Interpret, InterpreterResult};
-use crate::lexer::{Source, Token, TokenType};
+use crate::lexer::{Position, Source, Token, TokenType};
 
 mod grammar;
 
@@ -48,7 +48,7 @@ impl Display for IllegalSyntaxError {
 
         let underline = (1..self.location.start.column + line_header.len())
             .map(|_| ' ')
-            .chain((self.location.start.column..=self.location.end.column).map(|_| '^'))
+            .chain((self.location.start.index..=self.location.end.index).map(|_| '^'))
             .collect::<String>();
 
         let source = self
@@ -176,7 +176,8 @@ impl From<InternalParseResult> for ParserErrorRunner {
 
 pub struct Parser<'a> {
     source: &'a [u8],
-    tokens: IntoIter<Token>,
+    index: usize,
+    tokens: Vec<Token>,
     current_token: Option<Token>,
 }
 
@@ -191,7 +192,7 @@ impl ParseContext {
         self.advances += 1;
     }
 
-    fn register(mut self, result: InternalParseResult) -> Result<SyntaxNode, InternalParseResult> {
+    fn register(&mut self, result: InternalParseResult) -> Result<SyntaxNode, InternalParseResult> {
         self.advances += match &result {
             Ok(ParserOkRunner(ctx, _)) => ctx.advances,
             Err(ParserErrorRunner(ctx, _)) => ctx.advances,
@@ -199,8 +200,18 @@ impl ParseContext {
 
         match result {
             Ok(ParserOkRunner(_, node)) => Ok(node),
-            Err(ParserErrorRunner(_, err)) => Err(Err(ParserErrorRunner(self, err))),
+            Err(ParserErrorRunner(_, err)) => Err(Err(ParserErrorRunner(*self, err))),
         }
+    }
+
+    fn try_register(
+        &mut self,
+        result: InternalParseResult,
+    ) -> Result<SyntaxNode, InternalParseResult> {
+        if let Err(ParserErrorRunner(context, _)) = &result {
+            self.reverse_advances = context.advances;
+        }
+        self.register(result)
     }
 
     fn success(self, node: SyntaxNode) -> InternalParseResult {
@@ -218,17 +229,31 @@ impl<'a> Parser<'a> {
     pub fn new(tokens: Vec<Token>, source: &'a [u8]) -> Parser<'a> {
         let mut parser = Parser {
             source,
-            tokens: tokens.into_iter(),
+            index: 0,
+            tokens,
             current_token: None,
         };
-        parser.advance();
+        parser.update_token();
 
         parser
     }
 
     fn advance(&mut self) {
-        let next = self.tokens.next();
-        self.current_token = next;
+        self.index += 1;
+        self.update_token();
+    }
+
+    fn reverse(&mut self, amount: usize) {
+        self.index -= amount;
+        self.update_token();
+    }
+
+    fn update_token(&mut self) {
+        if (0..self.tokens.len()).contains(&self.index) {
+            self.current_token = Some(self.tokens[self.index].clone())
+        } else {
+            self.current_token = None
+        }
     }
 
     /**
@@ -294,7 +319,6 @@ impl<'a> Parser<'a> {
         let result = self.statements();
         let current_token = self.current_token.as_ref().unwrap();
         let token_type = &current_token.value;
-        let token_location = current_token.source;
 
         match result {
             Ok(ParserOkRunner(_, node)) if matches!(token_type, &TokenType::EOF) => {
@@ -302,13 +326,19 @@ impl<'a> Parser<'a> {
             }
             Err(ParserErrorRunner(_, err)) => Err(err),
             _ => {
-                return Err(ParseError::SyntaxError(
+                let start = current_token.source.start;
+                let end = Position {
+                    index: self.tokens.last().unwrap().source.end.index - 1,
+                    ..self.tokens.last().unwrap().source.end
+                };
+                let token_location = Source { start, end };
+                Err(ParseError::SyntaxError(
                     IllegalSyntaxError::new_invalid_syntax(
-                        "Expected '+', '-', '*', '/'",
+                        "Expected a variable declaration or expression",
                         token_location,
                         self.source,
                     ),
-                ));
+                ))
             }
         }
     }

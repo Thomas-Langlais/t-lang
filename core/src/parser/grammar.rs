@@ -2,8 +2,8 @@ use std::mem;
 
 use crate::lexer::{CompType, LogicType, OperationTokenType, Token, TokenType};
 use crate::parser::{
-    FactorNode, IllegalSyntaxError, InternalParseResult, ParseContext, ParseError, Parser, Statement,
-    StatementList, SyntaxNode, UnaryNode, VariableNode,
+    FactorNode, IllegalSyntaxError, InternalParseResult, ParseContext, ParseError, Parser,
+    Statement, StatementList, SyntaxNode, UnaryNode, VariableNode,
 };
 
 impl<'a> Parser<'a> {
@@ -287,25 +287,24 @@ impl<'a> Parser<'a> {
 
         statements.append(&mut {
             let mut vec: Vec<Statement> = Vec::new();
-            let mut more_statements = true;
 
             // (LINETERM+ statement)*
             loop {
                 let (newlines, _) = self.skip_line_term(&mut context);
                 if newlines == 0 {
-                    more_statements = false;
-                }
-
-                if !more_statements {
                     break;
                 }
-                let stmt = match context.register(self.statement()) {
+
+                let stmt = match context.try_register(self.statement()) {
                     Ok(s) => s,
-                    Err(e) => {
+                    Err(Err(_)) => {
                         // because the LINETERM+ is not met, it moves to the next state
-                        // return e;
-                        todo!()
+                        self.reverse(context.reverse_advances);
+                        break;
                     }
+                    _ => unreachable!(
+                        "Infallible, context.try_register should only wrap errors in an error"
+                    ),
                 };
                 let pos = stmt.get_pos();
                 let statement = Statement {

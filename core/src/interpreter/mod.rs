@@ -147,6 +147,7 @@ pub trait Interpret<'a> {
 impl<'a> Interpret<'a> for SyntaxNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         match self {
+            Self::Statements(node) => todo!("Implement the interpret trait for statement list"),
             Self::Variable(node) => node.interpret(context),
             Self::Factor(node) => node.interpret(context),
             Self::Unary(node) => node.interpret(context),
@@ -163,7 +164,7 @@ impl<'a> Interpret<'a> for VariableNode {
                     let expression = unsafe { self.expression.as_ref().unwrap_unchecked() };
                     let result = expression.interpret(context)?;
 
-                    context.visit(self.pos, self.identifier_token.source.start.line);
+                    context.visit(self.pos, self.line);
                     if let Err(err) = context
                         .symbol_table
                         .set(identifier, SymbolValue::from(&result))
@@ -173,7 +174,7 @@ impl<'a> Interpret<'a> for VariableNode {
 
                     Ok(result)
                 } else {
-                    context.visit(self.pos, self.identifier_token.source.start.line);
+                    context.visit(self.pos, self.line);
                     let value_result = context.symbol_table.get(identifier);
                     if value_result.is_none() {
                         let (start, end) = context.current_pos;
@@ -199,7 +200,7 @@ impl<'a> Interpret<'a> for VariableNode {
 
 impl<'a> Interpret<'a> for FactorNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
-        context.visit(self.pos, self.token.source.start.line);
+        context.visit(self.pos, self.line);
 
         match self.token.value {
             TokenType::Int(int) => Ok(InterpretedType::Int(int)),
@@ -211,7 +212,7 @@ impl<'a> Interpret<'a> for FactorNode {
 
 impl<'a> Interpret<'a> for UnaryNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
-        context.visit(self.pos, self.op_token.source.start.line);
+        context.visit(self.pos, self.line);
 
         match self.op_token.value {
             TokenType::Operation(OperationTokenType::Arithmetic(arith_type)) => {
@@ -231,7 +232,7 @@ impl<'a> Interpret<'a> for TermNode {
         let rhs = self.right_node.interpret(context)?;
 
         // set the term position after the children have finished
-        context.visit(self.pos, self.op_token.source.start.line);
+        context.visit(self.pos, self.line);
 
         match self.op_token.value {
             TokenType::Operation(OperationTokenType::Arithmetic(arith_type)) => {

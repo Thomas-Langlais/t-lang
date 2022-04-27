@@ -99,7 +99,7 @@ impl ToString for LogicType {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy)]
 pub struct Source {
     pub start: Position,
     pub end: Position,
@@ -139,7 +139,7 @@ impl Source {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct Position {
     pub index: usize,
     pub column: usize,

@@ -3,7 +3,7 @@ use std::mem;
 use std::vec::IntoIter;
 
 use crate::interpreter::{ExecutionContext, Interpret, InterpreterResult};
-use crate::lexer::{CompType, LogicType, OperationTokenType, Source, Token, TokenType};
+use crate::lexer::{CompType, LogicType, OperationTokenType, Position, Source, Token, TokenType};
 
 pub enum ParseError {
     SyntaxError(IllegalSyntaxError),
@@ -79,12 +79,14 @@ pub struct VariableNode {
     pub expression: Option<Box<SyntaxNode>>,
     pub assign: bool,
     pub pos: (usize, usize),
+    pub line: usize,
 }
 
 #[derive(Debug)]
 pub struct FactorNode {
     pub token: Token,
     pub pos: (usize, usize),
+    pub line: usize,
 }
 
 #[derive(Debug)]
@@ -92,6 +94,7 @@ pub struct UnaryNode {
     pub op_token: Token,
     pub node: Box<SyntaxNode>,
     pub pos: (usize, usize),
+    pub line: usize,
 }
 
 #[derive(Debug)]
@@ -100,10 +103,25 @@ pub struct TermNode {
     pub left_node: Box<SyntaxNode>,
     pub right_node: Box<SyntaxNode>,
     pub pos: (usize, usize),
+    pub line: usize,
+}
+
+#[derive(Debug)]
+pub struct Statement {
+    pub inner: Box<SyntaxNode>,
+    pub pos: (usize, usize),
+    pub line: usize,
+}
+
+#[derive(Debug)]
+pub struct StatementList {
+    pub statements: Vec<Statement>,
+    pub pos: (usize, usize),
 }
 
 #[derive(Debug)]
 pub enum SyntaxNode {
+    Statements(StatementList),
     Variable(VariableNode),
     Factor(FactorNode),
     Unary(UnaryNode),
@@ -113,6 +131,7 @@ pub enum SyntaxNode {
 impl SyntaxNode {
     fn get_pos(&self) -> (usize, usize) {
         match self {
+            Self::Statements(node) => node.pos,
             Self::Variable(node) => node.pos,
             Self::Factor(node) => node.pos,
             Self::Unary(node) => node.pos,
@@ -122,6 +141,7 @@ impl SyntaxNode {
 
     fn set_pos(&mut self, pos: (usize, usize)) {
         match self {
+            Self::Statements(node) => node.pos = pos,
             Self::Variable(node) => node.pos = pos,
             Self::Factor(node) => node.pos = pos,
             Self::Unary(node) => node.pos = pos,
@@ -146,16 +166,10 @@ impl<'a> Interpret<'a> for AbstractSyntaxTree {
     }
 }
 
-struct DebugItem {
-    value: String,
-    location: Source,
-}
-
 pub struct Parser<'a> {
     source: &'a [u8],
     tokens: IntoIter<Token>,
     current_token: Option<Token>,
-    debug_line: Vec<DebugItem>,
 }
 
 pub type ParseResult = Result<AbstractSyntaxTree, ParseError>;
@@ -176,7 +190,6 @@ impl<'a> Parser<'a> {
             source,
             tokens: tokens.into_iter(),
             current_token: None,
-            debug_line: Vec::new(),
         };
         parser.advance();
 
@@ -218,12 +231,15 @@ impl<'a> Parser<'a> {
 
             let (start, _) = left.get_pos();
             let (_, end) = right.get_pos();
+            let pos = (start, end);
+            let line = op_token.source.start.line;
 
             left = SyntaxNode::Term(TermNode {
                 left_node: Box::new(left),
-                op_token: op_token,
                 right_node: Box::new(right),
-                pos: (start, end),
+                op_token,
+                pos,
+                line,
             });
         }
 
@@ -242,9 +258,11 @@ impl<'a> Parser<'a> {
                     current_token.source.start.column,
                     current_token.source.end.column,
                 );
+                let line = current_token.source.start.line;
                 Ok(SyntaxNode::Factor(FactorNode {
                     token: current_token,
                     pos,
+                    line,
                 }))
             }
             TokenType::Identifier(_) => {
@@ -253,11 +271,13 @@ impl<'a> Parser<'a> {
                     current_token.source.start.column,
                     current_token.source.end.column,
                 );
+                let line = current_token.source.start.line;
                 Ok(SyntaxNode::Variable(VariableNode {
                     identifier_token: current_token,
                     expression: None,
                     assign: false,
                     pos,
+                    line,
                 }))
             }
             TokenType::LParen('(') => {
@@ -318,11 +338,13 @@ impl<'a> Parser<'a> {
                 let factor = unsafe { factor_result.unwrap_unchecked() };
                 let (_, end) = factor.get_pos();
                 let start = op_token.source.start.column;
-
+                let pos = (start, end);
+                let line = op_token.source.start.line;
                 Ok(SyntaxNode::Unary(UnaryNode {
-                    op_token,
                     node: Box::new(factor),
-                    pos: (start, end),
+                    op_token,
+                    pos,
+                    line,
                 }))
             }
             _ => self.atom(),
@@ -359,10 +381,12 @@ impl<'a> Parser<'a> {
 
             let node = Box::new(unsafe { cmp_expr.unwrap_unchecked() });
             let pos = (op_token.source.start.column, node.get_pos().1);
+            let line = op_token.source.start.line;
             Ok(SyntaxNode::Unary(UnaryNode {
                 op_token,
                 node,
                 pos,
+                line,
             }))
         } else {
             let func = |parser: &mut Parser| parser.arith_expr();
@@ -457,12 +481,14 @@ impl<'a> Parser<'a> {
 
                 let expr = unsafe { expression_result.unwrap_unchecked() };
                 let pos = (let_token.source.start.column, expr.get_pos().1);
+                let line = let_token.source.start.line;
                 let expression = Some(Box::new(expr));
                 Ok(SyntaxNode::Variable(VariableNode {
                     identifier_token,
                     expression,
                     assign: true,
                     pos,
+                    line,
                 }))
             } else {
                 self.expr()
@@ -472,18 +498,91 @@ impl<'a> Parser<'a> {
 
     /// statement = expression
     fn statement(&mut self) -> InternalParseResult {
-        todo!()
+        self.expression()
     }
 
     /// statements = LINETERM* statement
-    ///             (LINETERM+ statement)
+    ///             (LINETERM+ statement)*
     ///              LINETERM*
     fn statements(&mut self) -> InternalParseResult {
-        todo!();
+        // LINETERM* statement
+        self.skip_line_term();
+        let stmt = self.statement()?;
+        let pos = stmt.get_pos();
+        let statement = Statement {
+            inner: Box::new(stmt),
+            pos,
+            line: 0, // impl the line transfer
+        };
+        let mut statements = vec![statement];
+
+        statements.append(&mut {
+            let mut vec: Vec<Statement> = Vec::new();
+            let mut more_statements = true;
+            
+            // (LINETERM+ statement)*
+            loop {
+                let (newlines, _) = self.skip_line_term();
+                if newlines == 0 {
+                    more_statements = false;
+                }
+                
+                if !more_statements {
+                    break
+                }
+                let stmt = match self.statement() {
+                    Ok(s) => s,
+                    Err(e) => {
+                        // because the LINETERM+ is not met, it moves to the next state
+                        todo!()
+                    }
+                };
+                let pos = stmt.get_pos();
+                let statement = Statement {
+                    inner: Box::new(stmt),
+                    pos,
+                    line: 0, // impl the line transfer
+                };
+
+                vec.push(statement);
+            }
+
+            vec
+        });
+
+        // LINETERM*
+        self.skip_line_term();
+        let (start, _) = pos;
+        let list_pos = (start, statements.last().unwrap().pos.1);
+        Ok(SyntaxNode::Statements(StatementList {
+            statements,
+            pos: list_pos,
+        }))
+    }
+
+    fn skip_line_term(&mut self) -> (usize, Source) {
+        let mut newlines = 0;
+        let mut last_source = Source::default();
+
+        while let Some(Token {
+            value: TokenType::LineTerm,
+            source,
+        }) = self.current_token
+        {
+            last_source = source;
+            self.advance();
+            newlines += 1;
+        }
+
+        if let Some(token) = &self.current_token {
+            last_source = token.source;
+        }
+
+        (newlines, last_source)
     }
 
     pub fn generate_syntax_tree(&mut self) -> ParseResult {
-        let result = self.expression();
+        let result = self.statements();
         let current_token = self.current_token.as_ref().unwrap();
         let token_type = &current_token.value;
         let token_location = current_token.source;

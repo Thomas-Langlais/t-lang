@@ -191,6 +191,44 @@ impl<'a> Parser<'a> {
     /**
      * helper functions for parsing grammar nodes into the stacks
      */
+    fn bin_op(
+        &mut self,
+        func: fn(&mut Parser) -> InternalParseResult,
+        ops: &[TokenType],
+    ) -> InternalParseResult {
+        let left_result = func(self);
+        if let Err(err) = left_result {
+            return Err(err);
+        }
+
+        let mut left = unsafe { left_result.unwrap_unchecked() };
+        while let Some(token) = &self.current_token {
+            if !ops.iter().any(|op| token.value == *op) {
+                break;
+            }
+
+            let op_token = mem::replace(&mut self.current_token, None).unwrap();
+            self.advance();
+
+            let right_result = func(self);
+            if let Err(err) = right_result {
+                return Err(err);
+            }
+            let right = unsafe { right_result.unwrap_unchecked() };
+
+            let (start, _) = left.get_pos();
+            let (_, end) = right.get_pos();
+
+            left = SyntaxNode::Term(TermNode {
+                left_node: Box::new(left),
+                op_token: op_token,
+                right_node: Box::new(right),
+                pos: (start, end),
+            });
+        }
+
+        Ok(left)
+    }
 
     /// atom = INT|FLOAT|IDENTIFIER
     ///      = LParen expression RParen
@@ -432,43 +470,16 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn bin_op(
-        &mut self,
-        func: fn(&mut Parser) -> InternalParseResult,
-        ops: &[TokenType],
-    ) -> InternalParseResult {
-        let left_result = func(self);
-        if let Err(err) = left_result {
-            return Err(err);
-        }
+    /// statement = expression
+    fn statement(&mut self) -> InternalParseResult {
+        todo!()
+    }
 
-        let mut left = unsafe { left_result.unwrap_unchecked() };
-        while let Some(token) = &self.current_token {
-            if !ops.iter().any(|op| token.value == *op) {
-                break;
-            }
-
-            let op_token = mem::replace(&mut self.current_token, None).unwrap();
-            self.advance();
-
-            let right_result = func(self);
-            if let Err(err) = right_result {
-                return Err(err);
-            }
-            let right = unsafe { right_result.unwrap_unchecked() };
-
-            let (start, _) = left.get_pos();
-            let (_, end) = right.get_pos();
-
-            left = SyntaxNode::Term(TermNode {
-                left_node: Box::new(left),
-                op_token: op_token,
-                right_node: Box::new(right),
-                pos: (start, end),
-            });
-        }
-
-        Ok(left)
+    /// statements = LINETERM* statement
+    ///             (LINETERM+ statement)
+    ///              LINETERM*
+    fn statements(&mut self) -> InternalParseResult {
+        todo!();
     }
 
     pub fn generate_syntax_tree(&mut self) -> ParseResult {

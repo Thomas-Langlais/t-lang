@@ -61,7 +61,7 @@ fn main() {
         }
         let tokens = unsafe { tokens_result.unwrap_unchecked() };
 
-        let mut parser = Parser::new(tokens);
+        let mut parser = Parser::new(tokens, buffer.as_slice());
         let ast_result = parser.generate_syntax_tree();
 
         if let Err(err) = ast_result {

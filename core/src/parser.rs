@@ -3,7 +3,7 @@ use std::mem;
 use std::vec::IntoIter;
 
 use crate::interpreter::{ExecutionContext, Interpret, InterpreterResult};
-use crate::lexer::{CompType, Source, LogicType, OperationTokenType, Token, TokenType};
+use crate::lexer::{CompType, LogicType, OperationTokenType, Source, Token, TokenType};
 
 pub enum ParseError {
     SyntaxError(IllegalSyntaxError),
@@ -38,21 +38,29 @@ impl IllegalSyntaxError {
         }
     }
 
-    fn new_invalid_syntax(details: &str, location: Source, source: String) -> IllegalSyntaxError {
-        Self::new(&"Illegal Syntax", details, location, source)
+    fn new_invalid_syntax(details: &str, location: Source, source: &[u8]) -> IllegalSyntaxError {
+        let src = source.iter().map(|&b| b as char).collect();
+        Self::new("Illegal Syntax", details, location, src)
     }
 }
 
 impl Display for IllegalSyntaxError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
-        let line_header = format!("line {line}: ", line = self.line + 1);
+        let line_header = format!("line {line}: ", line = self.line);
 
-        let underline = (0..self.start + line_header.len())
+        let underline = (1..self.start + line_header.len())
             .map(|_| ' ')
             .chain((self.start..=self.end).map(|_| '^'))
             .collect::<String>();
 
-        let source = &self.source;
+        let source = self
+            .source
+            .lines()
+            .enumerate()
+            .skip_while(|(i, _)| i + 1 != self.line)
+            .map(|(_, line)| line)
+            .next()
+            .unwrap();
 
         write!(
             f,
@@ -143,7 +151,8 @@ struct DebugItem {
     location: Source,
 }
 
-pub struct Parser {
+pub struct Parser<'a> {
+    source: &'a [u8],
     tokens: IntoIter<Token>,
     current_token: Option<Token>,
     debug_line: Vec<DebugItem>,
@@ -161,9 +170,10 @@ static TERM_OPS: [TokenType; 2] = [
     TokenType::Operation(OperationTokenType::Arithmetic('/')),
 ];
 
-impl<'a> Parser {
-    pub fn new(tokens: Vec<Token>) -> Parser {
+impl<'a> Parser<'a> {
+    pub fn new(tokens: Vec<Token>, source: &'a [u8]) -> Parser<'a> {
         let mut parser = Parser {
+            source,
             tokens: tokens.into_iter(),
             current_token: None,
             debug_line: Vec::new(),
@@ -175,32 +185,7 @@ impl<'a> Parser {
 
     fn advance(&mut self) {
         let next = self.tokens.next();
-
-        match &next {
-            Some(token) if !matches!(token.value, TokenType::EOF) => {
-                self.debug_line.push(DebugItem {
-                    value: token.value.to_string(),
-                    location: token.source,
-                });
-            }
-            _ => {}
-        }
-
         self.current_token = next;
-    }
-
-    fn load_debug_line(&mut self) {
-        let current_line = match &self.current_token {
-            Some(token) => token.source.start.line,
-            None => 0,
-        };
-
-        while self.current_token.is_some()
-            && !matches!(self.current_token.as_ref().unwrap().value, TokenType::EOF)
-            && current_line == self.current_token.as_ref().unwrap().source.start.line
-        {
-            self.advance();
-        }
     }
 
     /**
@@ -257,8 +242,7 @@ impl<'a> Parser {
                     self.advance();
                     Ok(expression)
                 } else {
-                    self.load_debug_line();
-                    let source = self.regenerate_source();
+                    let source = self.source;
                     Err(ParseError::SyntaxError(
                         IllegalSyntaxError::new_invalid_syntax("Expected ')'", location, source),
                     ))
@@ -268,12 +252,11 @@ impl<'a> Parser {
                 let location = current_token.source;
                 // reset the parsers current token since, it's not a valid factor token
                 self.current_token = Some(current_token);
-                self.load_debug_line();
                 Err(ParseError::SyntaxError(
                     IllegalSyntaxError::new_invalid_syntax(
                         "Expected an number, variable, or expression",
                         location,
-                        self.regenerate_source(),
+                        self.source,
                     ),
                 ))
             }
@@ -397,12 +380,11 @@ impl<'a> Parser {
                             Some(token) => token.source,
                             None => let_token.source,
                         };
-                        self.load_debug_line();
                         return Err(ParseError::SyntaxError(
                             IllegalSyntaxError::new_invalid_syntax(
                                 "Expected a variable name",
                                 location,
-                                self.regenerate_source(),
+                                self.source,
                             ),
                         ));
                     }
@@ -420,12 +402,11 @@ impl<'a> Parser {
                             Some(token) => token.source,
                             None => identifier_token.source,
                         };
-                        self.load_debug_line();
                         return Err(ParseError::SyntaxError(
                             IllegalSyntaxError::new_invalid_syntax(
                                 "Expected a variable name",
                                 location,
-                                self.regenerate_source(),
+                                self.source,
                             ),
                         ));
                     }
@@ -502,28 +483,14 @@ impl<'a> Parser {
             }
             Err(err) => Err(err),
             _ => {
-                self.load_debug_line();
                 return Err(ParseError::SyntaxError(
                     IllegalSyntaxError::new_invalid_syntax(
                         "Expected '+', '-', '*', '/'",
                         token_location,
-                        self.regenerate_source(),
+                        self.source,
                     ),
                 ));
             }
         }
-    }
-
-    fn regenerate_source(&self) -> String {
-        let mut debug: Vec<String> = Vec::new();
-        let mut end = 0usize;
-        self.debug_line.iter().for_each(|next| {
-            let start = next.location.start.column;
-            debug.push((end + 1..start).map(|_| ' ').collect::<String>());
-            debug.push(next.value.to_string());
-            end = next.location.end.column;
-        });
-
-        debug.into_iter().collect::<String>()
     }
 }

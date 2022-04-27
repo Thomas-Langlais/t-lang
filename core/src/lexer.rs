@@ -107,10 +107,7 @@ pub struct Source {
 
 impl Source {
     pub fn new(start: Position, end: Position) -> Self {
-        Source {
-            start,
-            end,
-        }
+        Source { start, end }
     }
 
     pub fn new_single(pos: Position) -> Self {
@@ -172,14 +169,21 @@ pub struct LexerError {
 
 impl fmt::Display for LexerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> FormatResult {
-        let line_header = format!("line {line}: ", line = self.position.line + 1);
+        let line_header = format!("line {line}: ", line = self.position.line);
 
-        let underline = (0..self.position.column + line_header.len())
+        let underline = (1..self.position.column + line_header.len())
             .map(|_| ' ')
             .chain((0..1).map(|_| '^'))
             .collect::<String>();
 
-        let source = &self.source;
+        let source = self
+            .source
+            .lines()
+            .enumerate()
+            .skip_while(|(i, _)| i + 1 != self.position.line)
+            .map(|(_, line)| line)
+            .next()
+            .unwrap();
 
         write!(
             f,
@@ -297,7 +301,6 @@ impl<'a> Iterator for Lexer<'a> {
                         self.buffer
                             .iter()
                             .map(|b| *b as char)
-                            .take_while(|c| *c != '\n')
                             .collect(),
                     )));
                 }
@@ -374,7 +377,7 @@ impl<'a> Lexer<'a> {
                                 value: TokenType::Identifier(
                                     String::from_utf8(identifier).unwrap(),
                                 ),
-                                source: Source::new_unhandled(starting_position, self.src)
+                                source: Source::new_unhandled(starting_position, self.src),
                             }
                         }
                     }));

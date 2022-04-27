@@ -5,6 +5,9 @@ use std::io::{self, BufRead, Write};
 use core::interpreter::{ExecutionContext, Interpret, SymbolEntry, SymbolTable, SymbolValue};
 use core::lexer::Lexer;
 use core::parser::Parser;
+use std::ops::Range;
+
+static REPL_EXEC: &str = ".exec\n";
 
 fn main() {
     print!("T-Lang Console\n");
@@ -45,6 +48,14 @@ fn main() {
                 continue 'read;
             }
 
+            if bytes >= REPL_EXEC.len()
+                && &buffer[(buffer.len() - REPL_EXEC.len())..(buffer.len())] == REPL_EXEC.as_bytes()
+            {
+                for _ in 0..REPL_EXEC.len() {
+                    buffer.pop();
+                }
+                break 'read;
+            }
             if bytes >= 2 && buffer[buffer.len() - 2] != b';' {
                 // leave if there was no line termination char
                 break 'read;

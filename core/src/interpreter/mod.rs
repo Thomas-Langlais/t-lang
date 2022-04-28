@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter, Result as FormatResult};
 
 use crate::lexer::{OperationTokenType, TokenType};
 use crate::parser::{
-    FactorNode, Statement, StatementList, SyntaxNode, TermNode, UnaryNode, VariableNode,
+    FactorNode, Statement, StatementList, SyntaxNode, TermNode, UnaryNode, VariableNode, IfNode,
 };
 
 mod operations;
@@ -150,7 +150,7 @@ pub trait Interpret<'a> {
 impl<'a> Interpret<'a> for SyntaxNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         match self {
-            Self::If(node) => todo!(),
+            Self::If(node) => node.interpret(context),
             Self::Statements(node) => node.interpret(context),
             Self::Variable(node) => node.interpret(context),
             Self::Factor(node) => node.interpret(context),
@@ -177,6 +177,23 @@ impl<'a> Interpret<'a> for StatementList {
 impl<'a> Interpret<'a> for Statement {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         self.inner.interpret(context)
+    }
+}
+
+impl<'a> Interpret<'a> for IfNode {
+    fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult {
+        for case in &self.if_nodes {
+            let output = case.condition.interpret(context)?;
+            if bool::from(output) {
+                return case.statements.interpret(context);
+            }
+        }
+
+        if let Some(else_case) = &self.else_node {
+            return else_case.interpret(context);
+        }
+        
+        unreachable!("An IfNode always has 1 if statement")
     }
 }
 

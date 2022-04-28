@@ -21,13 +21,24 @@ comp_expr  = NOT comp_expr
 
 arith_expr = term (PLUS|MINUS term)*
 
+if-expr    = KW:IF expr LBlock
+                statements
+             RBlock
+             (KW:ELSE KW:IF expr LBlock
+                statements
+             RBlock)*
+             (KW:ELSE expr LBlock
+                statements
+             RBlock)?
+
 term       = factor (MUL|DIV factor)*
 
 factor     = atom
            = (PLUS|MINUS) factor
 
 atom       = INT|FLOAT|IDENTIFIER
-           = LParen expression RParen
+           = LParen expr RParen
+           = if-expr
 ```
 
            
@@ -37,10 +48,12 @@ atom       = INT|FLOAT|IDENTIFIER
 | EQ | `=` |
 | NOT | `!` |
 | AND | `&&` |
-| OR | `||` |
+| OR | `\|\|` |
 | EE | `==` |
 | NE | `!=` |
 | LT | `<` |
 | GT | `>` |
 | LTE | `<=` |
 | GTE | `>=` |
+| LBlock | `\|-` |
+| RBlock | `-\|` |

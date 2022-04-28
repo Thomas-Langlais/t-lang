@@ -210,7 +210,7 @@ impl LexerError {
 /* lifetimes are important here because we need to define
 that the scope of the readable is where the methods are being called. */
 pub struct Lexer<'a> {
-    buffer: &'a Vec<u8>,
+    buffer: &'a [u8],
     pos: usize,
     byte: Option<&'a u8>,
     src: Position,
@@ -311,7 +311,7 @@ impl<'a> Iterator for Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(buf: &'a Vec<u8>) -> Lexer<'a> {
+    pub fn new(buf: &'a [u8]) -> Lexer<'a> {
         Lexer {
             buffer: buf,
             pos: 0,

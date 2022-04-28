@@ -10,8 +10,8 @@ use core::parser::Parser;
 static REPL_EXEC: &str = ".exec\n";
 
 fn main() {
-    print!("T-Lang Console\n");
-    print!("--------------------------------------\n");
+    println!("T-Lang Console");
+    println!("--------------------------------------");
 
     let global_symbol_table = SymbolTable::new(HashMap::from([
         (
@@ -84,7 +84,7 @@ fn main() {
         let tokens_result = reader.parse_tokens();
 
         if let Err(err) = tokens_result {
-            print!("{}\n", err);
+            println!("{}", err);
             continue;
         }
         let tokens = unsafe { tokens_result.unwrap_unchecked() };
@@ -93,7 +93,7 @@ fn main() {
         let ast_result = parser.generate_syntax_tree();
 
         if let Err(err) = ast_result {
-            print!("{}\n", err);
+            println!("{}", err);
             continue;
         }
 
@@ -104,10 +104,10 @@ fn main() {
         );
         match ast.interpret(&mut context) {
             Ok(inter_type) => {
-                print!("= {}\n", inter_type);
+                println!("= {}", inter_type);
             }
             Err(err) => {
-                print!("{}\n", err);
+                println!("{}", err);
             }
         }
     }

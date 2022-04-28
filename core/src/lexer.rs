@@ -5,19 +5,10 @@ use std::string::ToString;
 static KEYWORDS: &[&str] = &["let"];
 
 // Tokens structures
+#[derive(Debug, Clone)]
 pub struct Token {
     pub value: TokenType,
-    pub source: Location,
-}
-
-impl fmt::Debug for Token {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if f.alternate() {
-            write!(f, "{:#?}", self.value)
-        } else {
-            write!(f, "{:?}", self.value)
-        }
-    }
+    pub source: Source,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -54,6 +45,7 @@ pub enum TokenType {
     Operation(OperationTokenType),
     Int(i64),
     Float(f64),
+    LineTerm,
     EOF,
 }
 
@@ -67,6 +59,7 @@ impl ToString for TokenType {
             TokenType::Operation(op) => op.to_string(),
             TokenType::Int(int) => int.to_string(),
             TokenType::Float(float) => float.to_string(),
+            TokenType::LineTerm => ";".to_string(),
             TokenType::EOF => "\\n".to_string(),
         }
     }
@@ -106,16 +99,64 @@ impl ToString for LogicType {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct Location {
+#[derive(Default, Debug, Clone, Copy)]
+pub struct Source {
     pub start: Position,
     pub end: Position,
 }
 
-#[derive(Copy, Clone)]
+impl Source {
+    pub fn new(start: Position, end: Position) -> Self {
+        Source { start, end }
+    }
+
+    pub fn new_single(pos: Position) -> Self {
+        Source {
+            start: pos,
+            end: pos,
+        }
+    }
+
+    pub fn new_unhandled(start: Position, end: Position) -> Self {
+        Source {
+            start,
+            end: {
+                if start.line != end.line {
+                    Position {
+                        index: end.index - 1,
+                        line: start.line,
+                        column: end.index - 1 - start.index + start.column,
+                    }
+                } else {
+                    Position {
+                        index: end.index - 1,
+                        line: end.line,
+                        column: end.column - 1,
+                    }
+                }
+            },
+        }
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone)]
 pub struct Position {
+    pub index: usize,
     pub column: usize,
     pub line: usize,
+}
+
+impl Position {
+    fn advance(&mut self, new_char: char) {
+        self.index += 1;
+        self.column += 1;
+
+        if new_char == '\n' {
+            self.line += 1;
+            // offset for the next char
+            self.column = 0;
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -128,14 +169,21 @@ pub struct LexerError {
 
 impl fmt::Display for LexerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> FormatResult {
-        let line_header = format!("line {line}: ", line = self.position.line + 1);
+        let line_header = format!("line {line}: ", line = self.position.line);
 
-        let underline = (0..self.position.column + line_header.len())
+        let underline = (1..self.position.column + line_header.len())
             .map(|_| ' ')
             .chain((0..1).map(|_| '^'))
             .collect::<String>();
 
-        let source = &self.source;
+        let source = self
+            .source
+            .lines()
+            .enumerate()
+            .skip_while(|(i, _)| i + 1 != self.position.line)
+            .map(|(_, line)| line)
+            .next()
+            .unwrap();
 
         write!(
             f,
@@ -162,7 +210,7 @@ impl LexerError {
 /* lifetimes are important here because we need to define
 that the scope of the readable is where the methods are being called. */
 pub struct Lexer<'a> {
-    buffer: &'a Vec<u8>,
+    buffer: &'a [u8],
     pos: usize,
     byte: Option<&'a u8>,
     src: Position,
@@ -188,10 +236,7 @@ impl<'a> Iterator for Lexer<'a> {
                     // create the token
                     let token = Token {
                         value: TokenType::Operation(OperationTokenType::Arithmetic(*op as char)),
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
+                        source: Source::new_single(self.src),
                     };
                     // advance the iterator context to the next char
                     self.advance();
@@ -201,10 +246,7 @@ impl<'a> Iterator for Lexer<'a> {
                     // create the token
                     let token = Token {
                         value: TokenType::LParen('('),
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
+                        source: Source::new_single(self.src),
                     };
                     // advance the iterator context to the next char
                     self.advance();
@@ -214,10 +256,7 @@ impl<'a> Iterator for Lexer<'a> {
                     // create the token
                     let token = Token {
                         value: TokenType::RParen(')'),
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
+                        source: Source::new_single(self.src),
                     };
                     // advance the iterator context to the next char
                     self.advance();
@@ -242,19 +281,17 @@ impl<'a> Iterator for Lexer<'a> {
                     break self.parse_greater(self.src);
                 }
                 // this is empty as we don't need to do any parsing on white spaces or tabs
-                Some(b' ') | Some(b'\t') => {
+                Some(b' ') | Some(b'\t') | Some(b'\n') => {
                     // advance the iterator context to the next char
                     self.advance();
                 }
-                Some(b'\n') => {
-                    // handle a line change for when we hold debug data
-                    break Some(Ok(Token {
-                        value: TokenType::EOF,
-                        source: Location {
-                            start: self.src,
-                            end: self.src,
-                        },
-                    }));
+                Some(b';') => {
+                    let token = Token {
+                        value: TokenType::LineTerm,
+                        source: Source::new_single(self.src),
+                    };
+                    self.advance();
+                    break Some(Ok(token));
                 }
                 Some(byte) => {
                     break Some(Err(LexerError::new(
@@ -264,7 +301,6 @@ impl<'a> Iterator for Lexer<'a> {
                         self.buffer
                             .iter()
                             .map(|b| *b as char)
-                            .take_while(|c| *c != '\n')
                             .collect(),
                     )));
                 }
@@ -275,12 +311,16 @@ impl<'a> Iterator for Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(buf: &'a Vec<u8>) -> Lexer<'a> {
+    pub fn new(buf: &'a [u8]) -> Lexer<'a> {
         Lexer {
             buffer: buf,
             pos: 0,
             byte: buf.get(0),
-            src: Position { column: 0, line: 0 },
+            src: Position {
+                index: 0,
+                column: 1,
+                line: 1,
+            },
         }
     }
 
@@ -288,16 +328,13 @@ impl<'a> Lexer<'a> {
         let mut tokens = vec![];
 
         while let Some(result_token) = self.next() {
-            match result_token {
-                Ok(token) => {
-                    tokens.push(token);
-                    if tokens.last().unwrap().value == TokenType::EOF {
-                        break;
-                    }
-                }
-                Err(err) => return Err(err),
-            }
+            tokens.push(result_token?);
         }
+
+        tokens.push(Token {
+            value: TokenType::EOF,
+            source: Source::new_single(self.src),
+        });
 
         Ok(tokens)
     }
@@ -307,7 +344,10 @@ impl<'a> Lexer<'a> {
     fn advance(&mut self) {
         self.pos += 1;
         self.byte = self.buffer.get(self.pos);
-        self.src.column += 1;
+
+        if let Some(&b) = self.byte {
+            self.src.advance(b as char)
+        }
     }
 
     fn parse_identifier(
@@ -330,26 +370,14 @@ impl<'a> Lexer<'a> {
                         {
                             Token {
                                 value: TokenType::Keyword(word),
-                                source: Location {
-                                    start: starting_position,
-                                    end: Position {
-                                        column: self.src.column - 1,
-                                        ..self.src
-                                    },
-                                },
+                                source: Source::new_unhandled(starting_position, self.src),
                             }
                         } else {
                             Token {
                                 value: TokenType::Identifier(
                                     String::from_utf8(identifier).unwrap(),
                                 ),
-                                source: Location {
-                                    start: starting_position,
-                                    end: Position {
-                                        column: self.src.column - 1,
-                                        ..self.src
-                                    },
-                                },
+                                source: Source::new_unhandled(starting_position, self.src),
                             }
                         }
                     }));
@@ -383,13 +411,7 @@ impl<'a> Lexer<'a> {
                 Some(_) => {
                     let token = Token {
                         value: TokenType::Int(number),
-                        source: Location {
-                            start: starting_position,
-                            end: Position {
-                                line: self.src.line,
-                                column: self.src.column - 1,
-                            },
-                        },
+                        source: Source::new_unhandled(starting_position, self.src),
                     };
                     // return the token
                     return Some(Ok(token));
@@ -427,13 +449,7 @@ impl<'a> Lexer<'a> {
                         // this is a lossy conversion and there will be no stoping from capturing
                         // this error at runtime atm. TODO
                         value: TokenType::Float(float),
-                        source: Location {
-                            start: starting_position,
-                            end: Position {
-                                line: self.src.line,
-                                column: self.src.column - 1,
-                            },
-                        },
+                        source: Source::new_unhandled(starting_position, self.src),
                     };
                     // return the token
                     return Some(Ok(token));
@@ -453,12 +469,12 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 Some(Ok(Token {
                     value: TokenType::Operation(OperationTokenType::Comparison(CompType::EE)),
-                    source: Location { start, end },
+                    source: Source::new(start, end),
                 }))
             }
             Some(_) => Some(Ok(Token {
                 value: TokenType::Operation(OperationTokenType::EQ),
-                source: Location { start, end: start },
+                source: Source::new_single(start),
             })),
             None => None,
         }
@@ -472,12 +488,12 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 Some(Ok(Token {
                     value: TokenType::Operation(OperationTokenType::Comparison(CompType::NE)),
-                    source: Location { start, end },
+                    source: Source::new(start, end),
                 }))
             }
             Some(_) => Some(Ok(Token {
                 value: TokenType::Operation(OperationTokenType::Logic(LogicType::NOT)),
-                source: Location { start, end: start },
+                source: Source::new_single(start),
             })),
             None => None,
         }
@@ -491,7 +507,7 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 Some(Ok(Token {
                     value: TokenType::Operation(OperationTokenType::Logic(LogicType::AND)),
-                    source: Location { start, end },
+                    source: Source::new(start, end),
                 }))
             }
             _ => Some(Err(LexerError::new(
@@ -511,7 +527,7 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 Some(Ok(Token {
                     value: TokenType::Operation(OperationTokenType::Logic(LogicType::OR)),
-                    source: Location { start, end },
+                    source: Source::new(start, end),
                 }))
             }
             _ => Some(Err(LexerError::new(
@@ -531,12 +547,12 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 Some(Ok(Token {
                     value: TokenType::Operation(OperationTokenType::Comparison(CompType::LTE)),
-                    source: Location { start, end },
+                    source: Source::new(start, end),
                 }))
             }
             Some(_) => Some(Ok(Token {
                 value: TokenType::Operation(OperationTokenType::Comparison(CompType::LT)),
-                source: Location { start, end: start },
+                source: Source::new_single(start),
             })),
             None => None,
         }
@@ -550,12 +566,12 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 Some(Ok(Token {
                     value: TokenType::Operation(OperationTokenType::Comparison(CompType::GTE)),
-                    source: Location { start, end },
+                    source: Source::new(start, end),
                 }))
             }
             Some(_) => Some(Ok(Token {
                 value: TokenType::Operation(OperationTokenType::Comparison(CompType::GT)),
-                source: Location { start, end: start },
+                source: Source::new_single(start),
             })),
             None => None,
         }

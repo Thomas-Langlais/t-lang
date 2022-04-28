@@ -25,7 +25,8 @@ lazy_static! {
 pub fn run(source: &str) -> String {
     utils::set_panic_hook();
 
-    let buffer = Vec::from(source.as_bytes());
+    let bytes = source.as_bytes();
+    let buffer = Vec::from(source);
 
     // set the io handle for reading the stream
     let mut reader = Lexer::new(&buffer);
@@ -36,7 +37,7 @@ pub fn run(source: &str) -> String {
     }
     let tokens = unsafe { tokens_result.unwrap_unchecked() };
 
-    let mut parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens, bytes);
     let ast_result = parser.generate_syntax_tree();
 
     if let Err(err) = ast_result {

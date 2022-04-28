@@ -21,9 +21,9 @@ comp_expr  = NOT comp_expr
 
 arith_expr = term (PLUS|MINUS term)*
 
-if-expr    = KW:IF expr block
+if_expr    = KW:IF expr block
                 (KW:ELSE KW:IF expr block)*
-              | (KW:ELSE expr block)?
+              | (KW:ELSE block)?
 
 block      = LBlock statements RBlock
 

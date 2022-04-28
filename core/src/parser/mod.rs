@@ -104,6 +104,19 @@ pub struct TermNode {
 }
 
 #[derive(Debug)]
+pub struct ConditionNode {
+    pub condition: Box<SyntaxNode>,
+    pub statements: Box<SyntaxNode>,
+}
+
+#[derive(Debug)]
+pub struct IfNode {
+    pub if_nodes: Vec<ConditionNode>,
+    pub else_node: Option<Box<SyntaxNode>>,
+    pub pos: (usize, usize),
+}
+
+#[derive(Debug)]
 pub struct Statement {
     pub inner: Box<SyntaxNode>,
     pub pos: (usize, usize),
@@ -118,6 +131,7 @@ pub struct StatementList {
 
 #[derive(Debug)]
 pub enum SyntaxNode {
+    If(IfNode),
     Statements(StatementList),
     Variable(VariableNode),
     Factor(FactorNode),
@@ -128,6 +142,7 @@ pub enum SyntaxNode {
 impl SyntaxNode {
     fn get_pos(&self) -> (usize, usize) {
         match self {
+            Self::If(node) => node.pos,
             Self::Statements(node) => node.pos,
             Self::Variable(node) => node.pos,
             Self::Factor(node) => node.pos,
@@ -138,6 +153,7 @@ impl SyntaxNode {
 
     fn set_pos(&mut self, pos: (usize, usize)) {
         match self {
+            Self::If(node) => node.pos = pos,
             Self::Statements(node) => node.pos = pos,
             Self::Variable(node) => node.pos = pos,
             Self::Factor(node) => node.pos = pos,

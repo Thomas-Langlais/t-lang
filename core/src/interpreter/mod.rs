@@ -150,6 +150,7 @@ pub trait Interpret<'a> {
 impl<'a> Interpret<'a> for SyntaxNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         match self {
+            Self::If(node) => todo!(),
             Self::Statements(node) => node.interpret(context),
             Self::Variable(node) => node.interpret(context),
             Self::Factor(node) => node.interpret(context),

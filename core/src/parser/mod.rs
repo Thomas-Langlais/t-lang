@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Display, Formatter, Result as FormatResult};
 use std::mem;
-use std::vec::IntoIter;
 
 use crate::interpreter::{ExecutionContext, Interpret, InterpreterResult};
 use crate::lexer::{Position, Source, Token, TokenType};

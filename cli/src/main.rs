@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
+use std::str;
 
 // this is a form of inport in JS
 use core::interpreter::{ExecutionContext, Interpret, SymbolEntry, SymbolTable, SymbolValue};
 use core::lexer::Lexer;
 use core::parser::Parser;
-use std::ops::Range;
 
 static REPL_EXEC: &str = ".exec\n";
 
@@ -37,6 +37,7 @@ fn main() {
         let mut handle = stdin.lock();
         // can only handle one line at a time right now
         let mut buffer: Vec<u8> = Vec::new();
+        let mut bytes_read_offset = 0;
 
         'read: loop {
             let bytes = handle.read_until(b'\n', &mut buffer).unwrap();
@@ -49,14 +50,30 @@ fn main() {
             }
 
             if bytes >= REPL_EXEC.len()
-                && &buffer[(buffer.len() - REPL_EXEC.len())..(buffer.len())] == REPL_EXEC.as_bytes()
+                && &buffer[(bytes_read_offset + bytes - REPL_EXEC.len())..(buffer.len())]
+                    == REPL_EXEC.as_bytes()
             {
                 for _ in 0..REPL_EXEC.len() {
                     buffer.pop();
                 }
                 break 'read;
             }
-            if bytes >= 2 && buffer[buffer.len() - 2] != b';' {
+            if buffer[bytes_read_offset..(buffer.len() - 2)]
+                .iter()
+                .all(|&b| b == b' ' || b == b'\n')
+            {
+                // if all whitespaces, continue the read
+                continue 'read;
+            }
+
+            bytes_read_offset = buffer.len();
+            
+            if buffer[buffer.len() - 2] == b'\\' {
+                buffer.remove(buffer.len() - 2);
+                bytes_read_offset -= 1;
+                continue 'read;
+            }
+            if buffer[buffer.len() - 2] != b';' {
                 // leave if there was no line termination char
                 break 'read;
             }

@@ -58,9 +58,9 @@ fn main() {
                 }
                 break 'read;
             }
-            if buffer[bytes_read_offset..(buffer.len() - 2)]
-                .iter()
-                .all(|&b| b == b' ' || b == b'\n')
+
+            let slice = &buffer[bytes_read_offset..(buffer.len() - 1)];
+            if slice.iter().all(|&b| b == b' ' || b == b'\n')
             {
                 // if all whitespaces, continue the read
                 continue 'read;

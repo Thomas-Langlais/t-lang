@@ -53,7 +53,7 @@ pub enum TokenType {
     EOF,
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct Source {
     pub start: Position,
     pub end: Position,
@@ -93,7 +93,7 @@ impl Source {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct Position {
     pub index: usize,
     pub column: usize,

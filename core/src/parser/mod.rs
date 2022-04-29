@@ -23,26 +23,44 @@ pub struct IllegalSyntaxError {
     pub details: String,
     pub source: String,
     pub location: Source,
+    reached_eof: bool,
 }
 
 impl IllegalSyntaxError {
-    fn new(name: &str, details: &str, location: Source, source: String) -> IllegalSyntaxError {
+    fn new(
+        name: &str,
+        details: &str,
+        location: Source,
+        source: String,
+        reached_eof: bool,
+    ) -> IllegalSyntaxError {
         IllegalSyntaxError {
             name: name.to_string(),
             details: details.to_string(),
             source,
             location,
+            reached_eof,
         }
     }
 
     fn new_invalid_syntax(details: &str, location: Source, source: &[u8]) -> IllegalSyntaxError {
-        let src = source.iter().map(|&b| b as char).collect();
-        Self::new("Illegal Syntax", details, location, src)
+        let src: String = source.iter().map(|&b| b as char).collect();
+        let reached_eof = location.start == location.end && location.start.index == src.len() - 1;
+        Self::new("Illegal Syntax", details, location, src, reached_eof)
     }
 }
 
 impl Display for IllegalSyntaxError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
+        if self.reached_eof {
+            return write!(
+                f,
+                "{name} - {details}\nEnd of file reached",
+                name = self.name,
+                details = self.details
+            );
+        }
+
         let line_header = format!("line {line}: ", line = self.location.start.line);
 
         let underline = (1..self.location.start.column + line_header.len())
@@ -104,6 +122,19 @@ pub struct TermNode {
 }
 
 #[derive(Debug)]
+pub struct ConditionNode {
+    pub condition: Box<SyntaxNode>,
+    pub statements: Box<SyntaxNode>,
+}
+
+#[derive(Debug)]
+pub struct IfNode {
+    pub if_nodes: Vec<ConditionNode>,
+    pub else_node: Option<Box<SyntaxNode>>,
+    pub pos: (usize, usize),
+}
+
+#[derive(Debug)]
 pub struct Statement {
     pub inner: Box<SyntaxNode>,
     pub pos: (usize, usize),
@@ -118,6 +149,7 @@ pub struct StatementList {
 
 #[derive(Debug)]
 pub enum SyntaxNode {
+    If(IfNode),
     Statements(StatementList),
     Variable(VariableNode),
     Factor(FactorNode),
@@ -128,6 +160,7 @@ pub enum SyntaxNode {
 impl SyntaxNode {
     fn get_pos(&self) -> (usize, usize) {
         match self {
+            Self::If(node) => node.pos,
             Self::Statements(node) => node.pos,
             Self::Variable(node) => node.pos,
             Self::Factor(node) => node.pos,
@@ -138,6 +171,7 @@ impl SyntaxNode {
 
     fn set_pos(&mut self, pos: (usize, usize)) {
         match self {
+            Self::If(node) => node.pos = pos,
             Self::Statements(node) => node.pos = pos,
             Self::Variable(node) => node.pos = pos,
             Self::Factor(node) => node.pos = pos,

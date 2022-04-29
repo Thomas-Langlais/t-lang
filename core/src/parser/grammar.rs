@@ -2,50 +2,51 @@ use std::mem;
 
 use crate::lexer::{CompType, LogicType, OperationTokenType, Token, TokenType};
 use crate::parser::{
-    FactorNode, IllegalSyntaxError, InternalParseResult, ParseContext, ParseError, Parser,
-    Statement, StatementList, SyntaxNode, UnaryNode, VariableNode,
+    ConditionNode, FactorNode, IfNode, IllegalSyntaxError, InternalParseResult, ParseContext,
+    ParseError, Parser, Statement, StatementList, SyntaxNode, UnaryNode, VariableNode,
 };
 
 impl<'a> Parser<'a> {
     /// atom = INT|FLOAT|IDENTIFIER
     ///      = LParen expression RParen
+    ///      = if_expr
     fn atom(&mut self) -> InternalParseResult {
         let mut context = ParseContext::default();
-        let current_token = mem::replace(&mut self.current_token, None).unwrap();
 
-        match current_token.value {
-            TokenType::Int(_) | TokenType::Float(_) => {
+        match self.current_token {
+            Some(Token {
+                value: TokenType::Int(_) | TokenType::Float(_),
+                source,
+            }) => {
+                let token = mem::replace(&mut self.current_token, None).unwrap();
                 context.advance();
                 self.advance();
-                let pos = (
-                    current_token.source.start.column,
-                    current_token.source.end.column,
-                );
-                let line = current_token.source.start.line;
-                context.success(SyntaxNode::Factor(FactorNode {
-                    token: current_token,
-                    pos,
-                    line,
-                }))
+                let pos = (source.start.column, source.end.column);
+                let line = source.start.line;
+                context.success(SyntaxNode::Factor(FactorNode { token, pos, line }))
             }
-            TokenType::Identifier(_) => {
+            Some(Token {
+                value: TokenType::Identifier(_),
+                source,
+            }) => {
+                let identifier_token = mem::replace(&mut self.current_token, None).unwrap();
                 context.advance();
                 self.advance();
-                let pos = (
-                    current_token.source.start.column,
-                    current_token.source.end.column,
-                );
-                let line = current_token.source.start.line;
+                let pos = (source.start.column, source.end.column);
+                let line = source.start.line;
                 context.success(SyntaxNode::Variable(VariableNode {
-                    identifier_token: current_token,
+                    identifier_token,
                     expression: None,
                     assign: false,
                     pos,
                     line,
                 }))
             }
-            TokenType::LParen('(') => {
-                let start = current_token.source.start.column;
+            Some(Token {
+                value: TokenType::LParen('('),
+                source,
+            }) => {
+                let start = source.start.column;
                 context.advance();
                 self.advance();
 
@@ -67,18 +68,20 @@ impl<'a> Parser<'a> {
                     ))
                 }
             }
-            _ => {
-                let location = current_token.source;
-                // reset the parsers current token since, it's not a valid factor token
-                self.current_token = Some(current_token);
-                context.failure(ParseError::SyntaxError(
-                    IllegalSyntaxError::new_invalid_syntax(
-                        "Expected an number, variable, or expression",
-                        location,
-                        self.source,
-                    ),
-                ))
-            }
+            Some(Token {
+                value: TokenType::Keyword("if"),
+                ..
+            }) => context.success(context.register(self.if_expr())?),
+            Some(Token { source, .. }) => context.failure(ParseError::SyntaxError(
+                IllegalSyntaxError::new_invalid_syntax(
+                    "Expected an number, variable, number sign (+/-), or if statement",
+                    source,
+                    self.source,
+                ),
+            )),
+            None => unreachable!(
+                "should not ever reach the end, EOF is always last and is never parser"
+            ),
         }
     }
 
@@ -120,6 +123,115 @@ impl<'a> Parser<'a> {
                 TokenType::Operation(OperationTokenType::Arithmetic('/')),
             ],
         )
+    }
+
+    /// LBlock statements RBlock
+    fn block(&mut self) -> InternalParseResult {
+        let mut context = ParseContext::default();
+
+        match self.current_token {
+            Some(Token {
+                value: TokenType::LBlock,
+                ..
+            }) => {}
+            Some(Token { source, .. }) => {
+                return context.failure(ParseError::SyntaxError(
+                    IllegalSyntaxError::new_invalid_syntax("expected |-", source, self.source),
+                ));
+            }
+            _ => unreachable!(
+                "should not ever reach the end, EOF is always last and is never parser"
+            ),
+        };
+        self.advance();
+        context.advance();
+
+        let statements = context.register(self.statements())?;
+
+        match self.current_token {
+            Some(Token {
+                value: TokenType::RBlock,
+                ..
+            }) => {}
+            Some(Token { source, .. }) => {
+                return context.failure(ParseError::SyntaxError(
+                    IllegalSyntaxError::new_invalid_syntax("expected -|", source, self.source),
+                ));
+            }
+            _ => unreachable!(
+                "should not ever reach the end, EOF is always last and is never parser"
+            ),
+        };
+        self.advance();
+        context.advance();
+
+        context.success(statements)
+    }
+
+    /// if-expr = KW:IF expr block
+    ///             (KW:ELSE KW:IF expr block)* | (KW:ELSE block)?
+    fn if_expr(&mut self) -> InternalParseResult {
+        let mut context = ParseContext::default();
+
+        match self.current_token {
+            Some(Token {
+                value: TokenType::Keyword("if"),
+                ..
+            }) => {
+                self.advance();
+                context.advance();
+            }
+            Some(Token { source, .. }) => {
+                return context.failure(ParseError::SyntaxError(
+                    IllegalSyntaxError::new_invalid_syntax(
+                        "expected if token",
+                        source,
+                        self.source,
+                    ),
+                ));
+            }
+            _ => unreachable!(
+                "should not ever reach the end, EOF is always last and is never parser"
+            ),
+        };
+
+        let mut node = IfNode {
+            if_nodes: vec![ConditionNode {
+                condition: Box::new(context.register(self.expr())?),
+                statements: Box::new(context.register(self.block())?),
+            }],
+            else_node: None,
+            pos: (0, 0),
+        };
+
+        while let Some(Token {
+            value: TokenType::Keyword("else"),
+            ..
+        }) = self.current_token
+        {
+            self.advance();
+            context.advance();
+
+            if let Some(Token {
+                value: TokenType::Keyword("if"),
+                ..
+            }) = self.current_token
+            {
+                self.advance();
+                context.advance();
+                node.if_nodes.push(ConditionNode {
+                    condition: Box::new(context.register(self.expr())?),
+                    statements: Box::new(context.register(self.block())?),
+                });
+
+                continue;
+            } else {
+                node.else_node = Some(Box::new(context.register(self.block())?));
+                break;
+            }
+        }
+
+        context.success(SyntaxNode::If(node))
     }
 
     /// arith_expr = term (PLUS|MINUS term)*

@@ -10,6 +10,8 @@ This is used to restrict what is allowed to be used for programming purposes.
 statements = LINETERM* statement (LINETERM+ statement)* LINETERM*
 
 statement  = expression
+           = KW:CONTINUE
+           = KW:BREAK
 
 expression = KW:LET IDENTIFIER EQ expr 
            = expr
@@ -25,6 +27,13 @@ if_expr    = KW:IF expr block
                 (KW:ELSE KW:IF expr block)*
               | (KW:ELSE block)?
 
+for_expr   = KW:FOR LParen (KW:LET IDENTIFIER EQ expr)? LINETERM
+               (expr)? LINETERM
+               (KW:LET IDENTIFIER EQ expr)? LINETERM
+             RParen block
+
+while_expr = KW:WHILE LParen expr RParen block
+
 block      = LBlock statements RBlock
 
 term       = factor (MUL|DIV factor)*
@@ -35,6 +44,8 @@ factor     = atom
 atom       = INT|FLOAT|IDENTIFIER
            = LParen expr RParen
            = if_expr
+           = for_expr
+           = while_expr
 ```
 
            

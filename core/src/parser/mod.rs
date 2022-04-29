@@ -135,22 +135,49 @@ pub struct IfNode {
 }
 
 #[derive(Debug)]
-pub struct Statement {
+pub struct StatementNode {
     pub inner: Box<SyntaxNode>,
     pub pos: (usize, usize),
     pub line: usize,
 }
 
 #[derive(Debug)]
-pub struct StatementList {
-    pub statements: Vec<Statement>,
+pub struct StatementListNode {
+    pub statements: Vec<SyntaxNode>,
     pub pos: (usize, usize),
 }
 
 #[derive(Debug)]
+pub struct ForNode {
+    pub declaration: Option<Box<SyntaxNode>>,
+    pub condition: Option<Box<SyntaxNode>>,
+    pub increment: Option<Box<SyntaxNode>>,
+    pub block: Box<SyntaxNode>,
+    pub pos: (usize, usize),
+}
+
+#[derive(Debug)]
+pub struct WhileNode {
+    pub condition: Box<SyntaxNode>,
+    pub block: Box<SyntaxNode>,
+    pub pos: (usize, usize),
+}
+
+#[derive(Debug)]
+pub struct ContinueNode(Token);
+
+#[derive(Debug)]
+pub struct BreakNode(Token);
+
+#[derive(Debug)]
 pub enum SyntaxNode {
     If(IfNode),
-    Statements(StatementList),
+    Statements(StatementListNode),
+    Statement(StatementNode),
+    For(ForNode),
+    While(WhileNode),
+    Continue(ContinueNode),
+    Break(BreakNode),
     Variable(VariableNode),
     Factor(FactorNode),
     Unary(UnaryNode),
@@ -162,6 +189,13 @@ impl SyntaxNode {
         match self {
             Self::If(node) => node.pos,
             Self::Statements(node) => node.pos,
+            Self::Statement(node) => node.pos,
+            Self::For(node) => node.pos,
+            Self::While(node) => node.pos,
+            Self::Continue(ContinueNode(node)) => {
+                (node.source.start.column, node.source.end.column)
+            }
+            Self::Break(BreakNode(node)) => (node.source.start.column, node.source.end.column),
             Self::Variable(node) => node.pos,
             Self::Factor(node) => node.pos,
             Self::Unary(node) => node.pos,
@@ -173,6 +207,17 @@ impl SyntaxNode {
         match self {
             Self::If(node) => node.pos = pos,
             Self::Statements(node) => node.pos = pos,
+            Self::Statement(node) => node.pos = pos,
+            Self::For(node) => node.pos = pos,
+            Self::While(node) => node.pos = pos,
+            Self::Continue(ContinueNode(node)) => {
+                node.source.start.column = pos.0;
+                node.source.end.column = pos.1;
+            }
+            Self::Break(BreakNode(node)) => {
+                node.source.start.column = pos.0;
+                node.source.end.column = pos.1;
+            }
             Self::Variable(node) => node.pos = pos,
             Self::Factor(node) => node.pos = pos,
             Self::Unary(node) => node.pos = pos,
@@ -324,6 +369,53 @@ impl<'a> Parser<'a> {
         }
 
         context.success(left)
+    }
+
+    // TODO: refactor the grammar to use this utility func
+    fn expect_and_consume(
+        &mut self,
+        context: &mut ParseContext,
+        token_type: &'static TokenType,
+        error: &'static str,
+    ) -> Result<(), InternalParseResult> {
+        match &self.current_token {
+            Some(Token { value, .. }) if value == token_type => {
+                self.advance();
+                context.advance();
+                Ok(())
+            }
+            _ => Err(context.failure(ParseError::SyntaxError(
+                IllegalSyntaxError::new_invalid_syntax(
+                    error,
+                    self.current_token.as_ref().unwrap().source,
+                    self.source,
+                ),
+            ))),
+        }
+    }
+
+    fn expect_and_parse<F>(
+        &mut self,
+        context: &mut ParseContext,
+        parse: F,
+        token_type: &'static TokenType,
+        error: &'static str,
+    ) -> Result<SyntaxNode, InternalParseResult>
+    where
+        F: FnOnce(&mut Self) -> InternalParseResult,
+    {
+        match &self.current_token {
+            Some(Token { value, .. }) if value == token_type => {
+                Ok(context.register(parse(self))?)
+            }
+            _ => Err(context.failure(ParseError::SyntaxError(
+                IllegalSyntaxError::new_invalid_syntax(
+                    error,
+                    self.current_token.as_ref().unwrap().source,
+                    self.source,
+                ),
+            ))),
+        }
     }
 
     fn skip_line_term(&mut self, context: &mut ParseContext) -> (usize, Source) {

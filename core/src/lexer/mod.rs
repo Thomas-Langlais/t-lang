@@ -4,7 +4,7 @@ mod rules;
 mod strings;
 
 // statics
-static KEYWORDS: &[&str] = &["let", "if", "else"];
+static KEYWORDS: &[&str] = &["let", "if", "else", "for", "while", "brk", "con"];
 
 // Tokens structures
 #[derive(Debug, Clone)]

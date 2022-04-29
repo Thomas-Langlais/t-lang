@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter, Result as FormatResult};
 
 use crate::lexer::{OperationTokenType, TokenType};
 use crate::parser::{
-    FactorNode, Statement, StatementList, SyntaxNode, TermNode, UnaryNode, VariableNode, IfNode,
+    FactorNode, StatementNode, StatementListNode, SyntaxNode, TermNode, UnaryNode, VariableNode, IfNode,
 };
 
 mod operations;
@@ -152,6 +152,11 @@ impl<'a> Interpret<'a> for SyntaxNode {
         match self {
             Self::If(node) => node.interpret(context),
             Self::Statements(node) => node.interpret(context),
+            Self::Statement(node) => node.interpret(context),
+            Self::For(_) => todo!(),
+            Self::While(_) => todo!(),
+            Self::Continue(_) => todo!(),
+            Self::Break(_) => todo!(),
             Self::Variable(node) => node.interpret(context),
             Self::Factor(node) => node.interpret(context),
             Self::Unary(node) => node.interpret(context),
@@ -160,7 +165,7 @@ impl<'a> Interpret<'a> for SyntaxNode {
     }
 }
 
-impl<'a> Interpret<'a> for StatementList {
+impl<'a> Interpret<'a> for StatementListNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         // compile complains about last_result being unitialized without the assignment
         // the parser has to output at least one statement, so let's a temp value
@@ -174,7 +179,7 @@ impl<'a> Interpret<'a> for StatementList {
     }
 }
 
-impl<'a> Interpret<'a> for Statement {
+impl<'a> Interpret<'a> for StatementNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         self.inner.interpret(context)
     }

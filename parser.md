@@ -13,7 +13,7 @@ statement  = expression
            = KW:CONTINUE
            = KW:BREAK
 
-expression = KW:LET IDENTIFIER EQ expr 
+expression = decl_expr 
            = expr
 
 expr       = comp_expr ((AND|OR) comp_expr)*
@@ -23,13 +23,15 @@ comp_expr  = NOT comp_expr
 
 arith_expr = term (PLUS|MINUS term)*
 
+decl_expr  = KW:LET IDENTIFIER EQ expr
+
 if_expr    = KW:IF expr block
                 (KW:ELSE KW:IF expr block)*
               | (KW:ELSE block)?
 
-for_expr   = KW:FOR LParen (KW:LET IDENTIFIER EQ expr)? LINETERM
+for_expr   = KW:FOR LParen (decl_expr)? LINETERM
                (expr)? LINETERM
-               (KW:LET IDENTIFIER EQ expr)? LINETERM
+               (decl_expr)?
              RParen block
 
 while_expr = KW:WHILE LParen expr RParen block

@@ -148,6 +148,15 @@ impl From<SymbolValue> for InterpretedType {
     }
 }
 
+impl From<InterpreterResult> for InterpreterError {
+    fn from(result: InterpreterResult) -> Self {
+        match result {
+            Err(err) => err,
+            _ => panic!("cannot convert Ok results to an error"),
+        }
+    }
+}
+
 pub trait Interpret<'a> {
     // I should try to add some trait methods that "visits" the children nodes
     // and use those instead.
@@ -191,7 +200,10 @@ impl<'a> Interpret<'a> for StatementListNode {
         let mut last_result = InterpretedType::Int(0);
 
         for statement in &self.statements {
-            last_result = statement.interpret(context)?;
+            last_result = self.exit_on(
+                statement.interpret(context)?,
+                &[InterpretedType::Continue, InterpretedType::Break],
+            )?;
         }
 
         Ok(last_result)
@@ -223,13 +235,55 @@ impl<'a> Interpret<'a> for IfNode {
 
 impl<'a> Interpret<'a> for ForNode {
     fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult {
-        todo!()
+        if let Some(decl) = &self.declaration {
+            decl.interpret(context)?;
+        }
+
+        loop {
+            if let Some(cond) = &self.condition {
+                if !bool::from(cond.interpret(context)?) {
+                    break;
+                };
+            }
+
+            match self.block.interpret(context)? {
+                InterpretedType::Continue => {
+                    continue;
+                }
+                InterpretedType::Break => {
+                    break;
+                }
+                _ => {}
+            }
+
+            if let Some(incr) = &self.increment {
+                incr.interpret(context)?;
+            }
+        }
+
+        Ok(InterpretedType::Int(0))
     }
 }
 
 impl<'a> Interpret<'a> for WhileNode {
     fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult {
-        todo!()
+        loop {
+            if !bool::from(self.condition.interpret(context)?) {
+                break;
+            }
+
+            match self.block.interpret(context)? {
+                InterpretedType::Continue => {
+                    continue;
+                }
+                InterpretedType::Break => {
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(InterpretedType::Int(0))
     }
 }
 

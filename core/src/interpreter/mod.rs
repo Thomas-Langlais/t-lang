@@ -2,7 +2,8 @@ use std::fmt::{Display, Formatter, Result as FormatResult};
 
 use crate::lexer::{OperationTokenType, TokenType};
 use crate::parser::{
-    FactorNode, StatementNode, StatementListNode, SyntaxNode, TermNode, UnaryNode, VariableNode, IfNode,
+    FactorNode, ForNode, IfNode, StatementListNode, StatementNode, SyntaxNode, TermNode, UnaryNode,
+    VariableNode, WhileNode,
 };
 
 mod operations;
@@ -13,6 +14,8 @@ pub enum InterpretedType {
     Float(f64),
     Int(i64),
     Bool(bool),
+    Continue,
+    Break,
 }
 
 #[derive(Debug)]
@@ -54,6 +57,8 @@ impl Display for InterpretedType {
             InterpretedType::Int(int) => write!(f, "{}", int),
             InterpretedType::Float(float) => write!(f, "{}", float),
             InterpretedType::Bool(b) => write!(f, "{}", b),
+            InterpretedType::Break => write!(f, "brk"),
+            InterpretedType::Continue => write!(f, "con"),
         }
     }
 }
@@ -118,6 +123,7 @@ impl From<InterpretedType> for bool {
             InterpretedType::Float(float) => float != 0.0,
             InterpretedType::Int(int) => int != 0,
             InterpretedType::Bool(b) => b,
+            _ => panic!("handle con and brk conditions"),
         }
     }
 }
@@ -128,6 +134,7 @@ impl<'a> From<&InterpretedType> for SymbolValue {
             InterpretedType::Int(n) => SymbolValue::Int(*n),
             InterpretedType::Float(n) => SymbolValue::Float(*n),
             InterpretedType::Bool(n) => SymbolValue::Bool(*n),
+            _ => panic!("handle con and brk conditions"),
         }
     }
 }
@@ -145,6 +152,18 @@ pub trait Interpret<'a> {
     // I should try to add some trait methods that "visits" the children nodes
     // and use those instead.
     fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult;
+
+    fn exit_on(
+        &self,
+        ret_type: InterpretedType,
+        exit_types: &'static [InterpretedType],
+    ) -> Result<InterpretedType, InterpreterResult> {
+        if exit_types.contains(&ret_type) {
+            Err(Ok(ret_type))
+        } else {
+            Ok(ret_type)
+        }
+    }
 }
 
 impl<'a> Interpret<'a> for SyntaxNode {
@@ -153,10 +172,10 @@ impl<'a> Interpret<'a> for SyntaxNode {
             Self::If(node) => node.interpret(context),
             Self::Statements(node) => node.interpret(context),
             Self::Statement(node) => node.interpret(context),
-            Self::For(_) => todo!(),
-            Self::While(_) => todo!(),
-            Self::Continue(_) => todo!(),
-            Self::Break(_) => todo!(),
+            Self::For(node) => node.interpret(context),
+            Self::While(node) => node.interpret(context),
+            Self::Continue(_) => Ok(InterpretedType::Continue),
+            Self::Break(_) => Ok(InterpretedType::Break),
             Self::Variable(node) => node.interpret(context),
             Self::Factor(node) => node.interpret(context),
             Self::Unary(node) => node.interpret(context),
@@ -197,8 +216,20 @@ impl<'a> Interpret<'a> for IfNode {
         if let Some(else_case) = &self.else_node {
             return else_case.interpret(context);
         }
-        
+
         unreachable!("An IfNode always has 1 if statement")
+    }
+}
+
+impl<'a> Interpret<'a> for ForNode {
+    fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult {
+        todo!()
+    }
+}
+
+impl<'a> Interpret<'a> for WhileNode {
+    fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult {
+        todo!()
     }
 }
 

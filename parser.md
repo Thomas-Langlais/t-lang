@@ -9,10 +9,10 @@ This is used to restrict what is allowed to be used for programming purposes.
 ```
 statements = statement statement*
 
-statement  = for_stmt
-           = while_stmt
-           = if_stmt
-           = stmt LINETERM+
+statement  = for_stmt LINETERM?
+           = while_stmt LINETERM?
+           = if_stmt LINETERM?
+           = stmt LINETERM
 
 stmt       = KW:CONTINUE
            = KW:BREAK

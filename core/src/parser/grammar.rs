@@ -450,10 +450,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// statement = if_stmt
-    ///           = for_stmt
-    ///           = while_stmt
-    ///           = stmt LINETERM+
+    /// statement = if_stmt LINETERM?
+    ///           = for_stmt LINETERM?
+    ///           = while_stmt LINETERM?
+    ///           = stmt LINETERM
     fn statement(&mut self) -> InternalParseResult {
         let mut context = ParseContext::default();
 
@@ -463,6 +463,8 @@ impl<'a> Parser<'a> {
                 ..
             }) => {
                 let inner = Box::new(context.register(self.if_stmt())?);
+                self.consume_if(&mut context, &TokenType::LineTerm);
+
                 let pos = inner.get_pos();
                 let line = 0;
                 context.success(SyntaxNode::Statement(StatementNode { inner, pos, line }))
@@ -472,6 +474,8 @@ impl<'a> Parser<'a> {
                 ..
             }) => {
                 let inner = Box::new(context.register(self.for_stmt())?);
+                self.consume_if(&mut context, &TokenType::LineTerm);
+
                 let pos = inner.get_pos();
                 let line = 0;
                 context.success(SyntaxNode::Statement(StatementNode { inner, pos, line }))
@@ -481,17 +485,15 @@ impl<'a> Parser<'a> {
                 ..
             }) => {
                 let inner = Box::new(context.register(self.while_stmt())?);
+                self.consume_if(&mut context, &TokenType::LineTerm);
+                
                 let pos = inner.get_pos();
                 let line = 0;
                 context.success(SyntaxNode::Statement(StatementNode { inner, pos, line }))
             }
             Some(_) => {
                 let inner = Box::new(context.register(self.stmt())?);
-                if let (0, source) = self.skip_line_term(&mut context) {
-                    return context.failure(ParseError::SyntaxError(
-                        IllegalSyntaxError::new_invalid_syntax("Expected ';'", source, self.source),
-                    ));
-                }
+                self.expect_and_consume(&mut context, &TokenType::LineTerm, "Expected ';'")?;
 
                 let pos = inner.get_pos();
                 let line = 0;

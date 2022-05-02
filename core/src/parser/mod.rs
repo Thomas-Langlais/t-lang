@@ -394,6 +394,20 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn consume_if(
+        &mut self,
+        context: &mut ParseContext,
+        token_type: &'static TokenType,
+    ) {
+        match &self.current_token {
+            Some(Token { value, .. }) if value == token_type => {
+                self.advance();
+                context.advance();
+            }
+            _ => {},
+        }
+    }
+
     fn expect_and_parse<F>(
         &mut self,
         context: &mut ParseContext,
@@ -416,28 +430,6 @@ impl<'a> Parser<'a> {
                 ),
             ))),
         }
-    }
-
-    fn skip_line_term(&mut self, context: &mut ParseContext) -> (usize, Source) {
-        let mut newlines = 0;
-        let mut last_source = Source::default();
-
-        while let Some(Token {
-            value: TokenType::LineTerm,
-            source,
-        }) = self.current_token
-        {
-            last_source = source;
-            self.advance();
-            context.advance();
-            newlines += 1;
-        }
-
-        if let Some(token) = &self.current_token {
-            last_source = token.source;
-        }
-
-        (newlines, last_source)
     }
 
     pub fn generate_syntax_tree(&mut self) -> Result<AbstractSyntaxTree, ParseError> {

@@ -141,41 +141,11 @@ impl<'a> Parser<'a> {
     fn block(&mut self) -> InternalParseResult {
         let mut context = ParseContext::default();
 
-        match self.current_token {
-            Some(Token {
-                value: TokenType::LBlock,
-                ..
-            }) => {}
-            Some(Token { source, .. }) => {
-                return context.failure(ParseError::SyntaxError(
-                    IllegalSyntaxError::new_invalid_syntax("expected |-", source, self.source),
-                ));
-            }
-            _ => unreachable!(
-                "should not ever reach the end, EOF is always last and is never parser"
-            ),
-        };
-        self.advance();
-        context.advance();
+        self.expect_and_consume(&mut context, &TokenType::LBlock, "expected |-")?;
 
         let statements = context.register(self.statements())?;
 
-        match self.current_token {
-            Some(Token {
-                value: TokenType::RBlock,
-                ..
-            }) => {}
-            Some(Token { source, .. }) => {
-                return context.failure(ParseError::SyntaxError(
-                    IllegalSyntaxError::new_invalid_syntax("expected -|", source, self.source),
-                ));
-            }
-            _ => unreachable!(
-                "should not ever reach the end, EOF is always last and is never parser"
-            ),
-        };
-        self.advance();
-        context.advance();
+        self.expect_and_consume(&mut context, &TokenType::RBlock, "expected -|")?;
 
         context.success(statements)
     }
@@ -185,27 +155,11 @@ impl<'a> Parser<'a> {
     fn if_expr(&mut self) -> InternalParseResult {
         let mut context = ParseContext::default();
 
-        match self.current_token {
-            Some(Token {
-                value: TokenType::Keyword("if"),
-                ..
-            }) => {
-                self.advance();
-                context.advance();
-            }
-            Some(Token { source, .. }) => {
-                return context.failure(ParseError::SyntaxError(
-                    IllegalSyntaxError::new_invalid_syntax(
-                        "expected if token",
-                        source,
-                        self.source,
-                    ),
-                ));
-            }
-            _ => unreachable!(
-                "should not ever reach the end, EOF is always last and is never parser"
-            ),
-        };
+        self.expect_and_consume(
+            &mut context,
+            &TokenType::Keyword("if"),
+            "expected an 'if' keyword token",
+        )?;
 
         let mut node = IfNode {
             if_nodes: vec![ConditionNode {

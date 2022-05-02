@@ -148,31 +148,10 @@ impl From<SymbolValue> for InterpretedType {
     }
 }
 
-impl From<InterpreterResult> for InterpreterError {
-    fn from(result: InterpreterResult) -> Self {
-        match result {
-            Err(err) => err,
-            _ => panic!("cannot convert Ok results to an error"),
-        }
-    }
-}
-
 pub trait Interpret<'a> {
     // I should try to add some trait methods that "visits" the children nodes
     // and use those instead.
     fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult;
-
-    fn exit_on(
-        &self,
-        ret_type: InterpretedType,
-        exit_types: &'static [InterpretedType],
-    ) -> Result<InterpretedType, InterpreterResult> {
-        if exit_types.contains(&ret_type) {
-            Err(Ok(ret_type))
-        } else {
-            Ok(ret_type)
-        }
-    }
 }
 
 impl<'a> Interpret<'a> for SyntaxNode {
@@ -200,10 +179,13 @@ impl<'a> Interpret<'a> for StatementListNode {
         let mut last_result = InterpretedType::Int(0);
 
         for statement in &self.statements {
-            last_result = self.exit_on(
-                statement.interpret(context)?,
-                &[InterpretedType::Continue, InterpretedType::Break],
-            )?;
+            last_result = statement.interpret(context)?;
+            if matches!(
+                last_result,
+                InterpretedType::Continue | InterpretedType::Break
+            ) {
+                break;
+            }
         }
 
         Ok(last_result)
@@ -229,7 +211,7 @@ impl<'a> Interpret<'a> for IfNode {
             return else_case.interpret(context);
         }
 
-        unreachable!("An IfNode always has 1 if statement")
+        Ok(InterpretedType::Int(0))
     }
 }
 

@@ -11,9 +11,6 @@ use super::{BreakNode, ContinueNode, ForNode, WhileNode};
 impl<'a> Parser<'a> {
     /// atom = INT|FLOAT|IDENTIFIER
     ///      = LParen expression RParen
-    ///      = if_expr
-    ///      = for_expr
-    ///      = while_expr
     fn atom(&mut self) -> InternalParseResult {
         let mut context = ParseContext::default();
 
@@ -72,18 +69,6 @@ impl<'a> Parser<'a> {
                     ))
                 }
             }
-            Some(Token {
-                value: TokenType::Keyword("if"),
-                ..
-            }) => context.success(context.register(self.if_expr())?),
-            Some(Token {
-                value: TokenType::Keyword("for"),
-                ..
-            }) => context.success(context.register(self.for_expr())?),
-            Some(Token {
-                value: TokenType::Keyword("while"),
-                ..
-            }) => context.success(context.register(self.while_expr())?),
             Some(Token { source, .. }) => context.failure(ParseError::SyntaxError(
                 IllegalSyntaxError::new_invalid_syntax(
                     "Expected an number, variable, number sign (+/-), or if statement",
@@ -150,9 +135,9 @@ impl<'a> Parser<'a> {
         context.success(statements)
     }
 
-    /// if-expr = KW:IF expr block
+    /// if_stmt = KW:IF expr block
     ///             (KW:ELSE KW:IF expr block)* | (KW:ELSE block)?
-    fn if_expr(&mut self) -> InternalParseResult {
+    fn if_stmt(&mut self) -> InternalParseResult {
         let mut context = ParseContext::default();
 
         self.expect_and_consume(
@@ -200,14 +185,14 @@ impl<'a> Parser<'a> {
         context.success(SyntaxNode::If(node))
     }
 
-    /// for_expr = KW:FOR
+    /// for_stmt = KW:FOR
     ///                 LParen
     ///                     (decl_expr)? LINETERM
     ///                     (expr)? LINETERM
     ///                     (decl_expr)?
     ///                 RParen
     ///            block
-    fn for_expr(&mut self) -> InternalParseResult {
+    fn for_stmt(&mut self) -> InternalParseResult {
         let mut context = ParseContext::default();
 
         self.advance();
@@ -259,7 +244,7 @@ impl<'a> Parser<'a> {
     }
 
     /// while_expr = KW:WHILE LParen expr RParen block
-    fn while_expr(&mut self) -> InternalParseResult {
+    fn while_stmt(&mut self) -> InternalParseResult {
         let mut context = ParseContext::default();
 
         self.advance();
@@ -430,22 +415,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// statement = expression
-    ///           = KW:BREAK
-    ///           = KW:CONTINUE
-    fn statement(&mut self) -> InternalParseResult {
+    /// stmt = KW:BREAK
+    ///      = KW:CONTINUE
+    ///      = expression
+    fn stmt(&mut self) -> InternalParseResult {
         let mut context = ParseContext::default();
 
         match self.current_token {
-            Some(Token {
-                value: TokenType::Keyword("con"),
-                ..
-            }) => {
-                let token = self.current_token.take().unwrap();
-                self.advance();
-                context.advance();
-                context.success(SyntaxNode::Continue(ContinueNode(token)))
-            }
             Some(Token {
                 value: TokenType::Keyword("brk"),
                 ..
@@ -454,6 +430,15 @@ impl<'a> Parser<'a> {
                 self.advance();
                 context.advance();
                 context.success(SyntaxNode::Break(BreakNode(token)))
+            }
+            Some(Token {
+                value: TokenType::Keyword("con"),
+                ..
+            }) => {
+                let token = self.current_token.take().unwrap();
+                self.advance();
+                context.advance();
+                context.success(SyntaxNode::Continue(ContinueNode(token)))
             }
             Some(_) => {
                 let inner = Box::new(context.register(self.expression())?);
@@ -465,14 +450,61 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// statements = LINETERM* statement
-    ///             (LINETERM+ statement)*
-    ///              LINETERM*
+    /// statement = if_stmt
+    ///           = for_stmt
+    ///           = while_stmt
+    ///           = stmt LINETERM+
+    fn statement(&mut self) -> InternalParseResult {
+        let mut context = ParseContext::default();
+
+        match self.current_token {
+            Some(Token {
+                value: TokenType::Keyword("if"),
+                ..
+            }) => {
+                let inner = Box::new(context.register(self.if_stmt())?);
+                let pos = inner.get_pos();
+                let line = 0;
+                context.success(SyntaxNode::Statement(StatementNode { inner, pos, line }))
+            }
+            Some(Token {
+                value: TokenType::Keyword("for"),
+                ..
+            }) => {
+                let inner = Box::new(context.register(self.for_stmt())?);
+                let pos = inner.get_pos();
+                let line = 0;
+                context.success(SyntaxNode::Statement(StatementNode { inner, pos, line }))
+            }
+            Some(Token {
+                value: TokenType::Keyword("while"),
+                ..
+            }) => {
+                let inner = Box::new(context.register(self.while_stmt())?);
+                let pos = inner.get_pos();
+                let line = 0;
+                context.success(SyntaxNode::Statement(StatementNode { inner, pos, line }))
+            }
+            Some(_) => {
+                let inner = Box::new(context.register(self.stmt())?);
+                if let (0, source) = self.skip_line_term(&mut context) {
+                    return context.failure(ParseError::SyntaxError(
+                        IllegalSyntaxError::new_invalid_syntax("Expected ';'", source, self.source),
+                    ));
+                }
+
+                let pos = inner.get_pos();
+                let line = 0;
+                context.success(SyntaxNode::Statement(StatementNode { inner, pos, line }))
+            }
+            _ => unreachable!("Infallible since EOF is never parsed"),
+        }
+    }
+
+    /// statements = statement statement*
     pub fn statements(&mut self) -> InternalParseResult {
         let mut context = ParseContext::default();
 
-        // LINETERM* statement
-        self.skip_line_term(&mut context);
         let statement = context.register(self.statement())?;
         let pos = statement.get_pos();
         let mut statements = vec![statement];
@@ -480,13 +512,7 @@ impl<'a> Parser<'a> {
         statements.append(&mut {
             let mut vec: Vec<SyntaxNode> = Vec::new();
 
-            // (LINETERM+ statement)*
             loop {
-                let (newlines, _) = self.skip_line_term(&mut context);
-                if newlines == 0 {
-                    break;
-                }
-
                 let statement = match context.try_register(self.statement()) {
                     Ok(s) => s,
                     Err(Err(_)) => {
@@ -505,8 +531,6 @@ impl<'a> Parser<'a> {
             vec
         });
 
-        // LINETERM*
-        self.skip_line_term(&mut context);
         let (start, _) = pos;
         let list_pos = (start, statements.last().unwrap().get_pos().1);
         context.success(SyntaxNode::Statements(StatementListNode {

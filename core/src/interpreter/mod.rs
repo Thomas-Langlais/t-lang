@@ -228,14 +228,9 @@ impl<'a> Interpret<'a> for ForNode {
                 };
             }
 
-            match self.block.interpret(context)? {
-                InterpretedType::Continue => {
-                    continue;
-                }
-                InterpretedType::Break => {
-                    break;
-                }
-                _ => {}
+            let result = self.block.interpret(context)?;
+            if let InterpretedType::Break = result {
+                break;
             }
 
             if let Some(incr) = &self.increment {

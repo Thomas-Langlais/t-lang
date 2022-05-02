@@ -34,6 +34,12 @@ impl Add for InterpretedType {
             (InterpretedType::Float(l), InterpretedType::Bool(r)) => {
                 InterpretedType::Float(if r { l + 1.0f64 } else { l })
             }
+            (InterpretedType::Break, _)
+            | (_, InterpretedType::Break)
+            | (InterpretedType::Continue, _)
+            | (_, InterpretedType::Continue) => {
+                unreachable!("breaks, and continue are never to be handled")
+            }
         }
     }
 }
@@ -67,6 +73,12 @@ impl Sub for InterpretedType {
             (InterpretedType::Float(l), InterpretedType::Bool(r)) => {
                 InterpretedType::Float(if r { l - 1.0f64 } else { l })
             }
+            (InterpretedType::Break, _)
+            | (_, InterpretedType::Break)
+            | (InterpretedType::Continue, _)
+            | (_, InterpretedType::Continue) => {
+                unreachable!("breaks, and continue are never to be handled")
+            }
         }
     }
 }
@@ -99,6 +111,12 @@ impl Mul for InterpretedType {
             }
             (InterpretedType::Float(l), InterpretedType::Bool(r)) => {
                 InterpretedType::Float(if r { l } else { 0.0 })
+            }
+            (InterpretedType::Break, _)
+            | (_, InterpretedType::Break)
+            | (InterpretedType::Continue, _)
+            | (_, InterpretedType::Continue) => {
+                unreachable!("breaks, and continue are never to be handled")
             }
         }
     }
@@ -139,6 +157,12 @@ impl Div for InterpretedType {
             // it will always be the left side, because we handle div by zero above
             (InterpretedType::Int(l), InterpretedType::Bool(_)) => Ok(InterpretedType::Int(l)),
             (InterpretedType::Float(l), InterpretedType::Bool(_)) => Ok(InterpretedType::Float(l)),
+            (InterpretedType::Break, _)
+            | (_, InterpretedType::Break)
+            | (InterpretedType::Continue, _)
+            | (_, InterpretedType::Continue) => {
+                unreachable!("breaks, and continue are never to be handled")
+            }
         }
     }
 }
@@ -149,6 +173,9 @@ impl InterpretedType {
             Self::Float(n) => n == &0.0,
             Self::Int(n) => n == &0,
             Self::Bool(n) => !n,
+            Self::Break | Self::Continue => {
+                unreachable!("break, and continues are never to be handledx")
+            }
         }
     }
 }
@@ -187,6 +214,12 @@ impl PartialEq for InterpretedType {
                         0.0f64
                     }
                 }
+            }
+            (InterpretedType::Break, _)
+            | (_, InterpretedType::Break)
+            | (InterpretedType::Continue, _)
+            | (_, InterpretedType::Continue) => {
+                unreachable!("breaks, and continue are never to be handled")
             }
         }
     }
@@ -228,6 +261,12 @@ impl PartialOrd for InterpretedType {
                     &0.0f64
                 }
             }),
+            (InterpretedType::Break, _)
+            | (_, InterpretedType::Break)
+            | (InterpretedType::Continue, _)
+            | (_, InterpretedType::Continue) => {
+                unreachable!("breaks, and continue are never to be handled")
+            }
         }
     }
 }

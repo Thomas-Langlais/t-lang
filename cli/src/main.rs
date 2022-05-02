@@ -45,6 +45,7 @@ fn main() {
                 // restart the repl loop when only a newline is in the buffer
                 continue 'repl;
             } else if bytes == 1 {
+                bytes_read_offset = buffer.len();
                 // allow newline spacing
                 continue 'read;
             }

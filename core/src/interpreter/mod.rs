@@ -2,7 +2,8 @@ use std::fmt::{Display, Formatter, Result as FormatResult};
 
 use crate::lexer::{OperationTokenType, TokenType};
 use crate::parser::{
-    FactorNode, Statement, StatementList, SyntaxNode, TermNode, UnaryNode, VariableNode, IfNode,
+    FactorNode, ForNode, IfNode, StatementListNode, StatementNode, SyntaxNode, TermNode, UnaryNode,
+    VariableNode, WhileNode,
 };
 
 mod operations;
@@ -13,6 +14,8 @@ pub enum InterpretedType {
     Float(f64),
     Int(i64),
     Bool(bool),
+    Continue,
+    Break,
 }
 
 #[derive(Debug)]
@@ -54,6 +57,8 @@ impl Display for InterpretedType {
             InterpretedType::Int(int) => write!(f, "{}", int),
             InterpretedType::Float(float) => write!(f, "{}", float),
             InterpretedType::Bool(b) => write!(f, "{}", b),
+            InterpretedType::Break => write!(f, "brk"),
+            InterpretedType::Continue => write!(f, "con"),
         }
     }
 }
@@ -118,6 +123,7 @@ impl From<InterpretedType> for bool {
             InterpretedType::Float(float) => float != 0.0,
             InterpretedType::Int(int) => int != 0,
             InterpretedType::Bool(b) => b,
+            _ => panic!("handle con and brk conditions"),
         }
     }
 }
@@ -128,6 +134,7 @@ impl<'a> From<&InterpretedType> for SymbolValue {
             InterpretedType::Int(n) => SymbolValue::Int(*n),
             InterpretedType::Float(n) => SymbolValue::Float(*n),
             InterpretedType::Bool(n) => SymbolValue::Bool(*n),
+            _ => panic!("handle con and brk conditions"),
         }
     }
 }
@@ -152,6 +159,11 @@ impl<'a> Interpret<'a> for SyntaxNode {
         match self {
             Self::If(node) => node.interpret(context),
             Self::Statements(node) => node.interpret(context),
+            Self::Statement(node) => node.interpret(context),
+            Self::For(node) => node.interpret(context),
+            Self::While(node) => node.interpret(context),
+            Self::Continue(_) => Ok(InterpretedType::Continue),
+            Self::Break(_) => Ok(InterpretedType::Break),
             Self::Variable(node) => node.interpret(context),
             Self::Factor(node) => node.interpret(context),
             Self::Unary(node) => node.interpret(context),
@@ -160,7 +172,7 @@ impl<'a> Interpret<'a> for SyntaxNode {
     }
 }
 
-impl<'a> Interpret<'a> for StatementList {
+impl<'a> Interpret<'a> for StatementListNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         // compile complains about last_result being unitialized without the assignment
         // the parser has to output at least one statement, so let's a temp value
@@ -168,13 +180,19 @@ impl<'a> Interpret<'a> for StatementList {
 
         for statement in &self.statements {
             last_result = statement.interpret(context)?;
+            if matches!(
+                last_result,
+                InterpretedType::Continue | InterpretedType::Break
+            ) {
+                break;
+            }
         }
 
         Ok(last_result)
     }
 }
 
-impl<'a> Interpret<'a> for Statement {
+impl<'a> Interpret<'a> for StatementNode {
     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
         self.inner.interpret(context)
     }
@@ -192,8 +210,57 @@ impl<'a> Interpret<'a> for IfNode {
         if let Some(else_case) = &self.else_node {
             return else_case.interpret(context);
         }
-        
-        unreachable!("An IfNode always has 1 if statement")
+
+        Ok(InterpretedType::Int(0))
+    }
+}
+
+impl<'a> Interpret<'a> for ForNode {
+    fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult {
+        if let Some(decl) = &self.declaration {
+            decl.interpret(context)?;
+        }
+
+        loop {
+            if let Some(cond) = &self.condition {
+                if !bool::from(cond.interpret(context)?) {
+                    break;
+                };
+            }
+
+            let result = self.block.interpret(context)?;
+            if let InterpretedType::Break = result {
+                break;
+            }
+
+            if let Some(incr) = &self.increment {
+                incr.interpret(context)?;
+            }
+        }
+
+        Ok(InterpretedType::Int(0))
+    }
+}
+
+impl<'a> Interpret<'a> for WhileNode {
+    fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult {
+        loop {
+            if !bool::from(self.condition.interpret(context)?) {
+                break;
+            }
+
+            match self.block.interpret(context)? {
+                InterpretedType::Continue => {
+                    continue;
+                }
+                InterpretedType::Break => {
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(InterpretedType::Int(0))
     }
 }
 

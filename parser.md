@@ -7,11 +7,31 @@ This is used to restrict what is allowed to be used for programming purposes.
 
 # Grammar rules
 ```
-statements = LINETERM* statement (LINETERM+ statement)* LINETERM*
+statements = statement statement*
 
-statement  = expression
+statement  = for_stmt LINETERM?
+           = while_stmt LINETERM?
+           = if_stmt LINETERM?
+           = stmt LINETERM
 
-expression = KW:LET IDENTIFIER EQ expr 
+stmt       = KW:CONTINUE
+           = KW:BREAK
+           = expression
+
+if_stmt    = KW:IF expr block
+                (KW:ELSE KW:IF expr block)*
+              | (KW:ELSE block)?
+
+for_stmt   = KW:FOR LParen (decl_expr)? LINETERM
+               (expr)? LINETERM
+               (decl_expr)?
+             RParen block
+
+while_stmt = KW:WHILE LParen expr RParen block
+
+block      = LBlock statements RBlock
+
+expression = decl_expr 
            = expr
 
 expr       = comp_expr ((AND|OR) comp_expr)*
@@ -21,11 +41,7 @@ comp_expr  = NOT comp_expr
 
 arith_expr = term (PLUS|MINUS term)*
 
-if_expr    = KW:IF expr block
-                (KW:ELSE KW:IF expr block)*
-              | (KW:ELSE block)?
-
-block      = LBlock statements RBlock
+decl_expr  = KW:LET IDENTIFIER EQ expr
 
 term       = factor (MUL|DIV factor)*
 
@@ -34,7 +50,6 @@ factor     = atom
 
 atom       = INT|FLOAT|IDENTIFIER
            = LParen expr RParen
-           = if_expr
 ```
 
            

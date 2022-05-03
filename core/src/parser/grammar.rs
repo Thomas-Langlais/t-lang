@@ -51,6 +51,12 @@ impl<'a> Parser<'a> {
                     )),
                 }
             }
+            Some(Ok(Token {
+                value: TokenType::Bad(msg, source),
+                ..
+            })) => {
+                Err(Error::Bad(*msg, *source))
+            }
             Some(Ok(Token { source, .. })) => Err(Error::Bad(
                 "Expected an number, variable, number sign (+/-), or if statement",
                 *source,

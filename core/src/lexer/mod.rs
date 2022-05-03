@@ -56,8 +56,7 @@ pub enum TokenType {
     // These two variants signal that something went wrong
     // and the parser should handle them with care
     EOF,
-    BadRead(&'static str, char),
-    BadParse(&'static str, Source),
+    Bad(&'static str, Source),
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
@@ -208,8 +207,7 @@ impl<'a> Iterator for Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    fn handle_bad_read(&mut self, msg: &'static str, ch: char) -> io::Result<Token> {
-        let pos = self.src;
+    fn handle_bad_read(&mut self, msg: &'static str, pos: Position) -> io::Result<Token> {
         loop {
             match self.input.peek() {
                 Some(Ok(ch)) if ch.is_separator() => break,
@@ -221,14 +219,14 @@ impl<'a> Lexer<'a> {
             }
         }
         Ok(Token {
-            value: TokenType::BadRead(msg, ch),
-            source: Source::new_single(pos),
+            value: TokenType::Bad(msg, Source::new(pos, self.src)),
+            source: Source::new(pos, self.src),
         })
     }
 
-    fn handle_bad_peek(&mut self, msg: &'static str) -> io::Result<Token> {
-        let ch = self.advance().unwrap().unwrap();
-        self.handle_bad_read(msg, ch)
+    fn handle_bad_peek(&mut self, msg: &'static str, pos: Position) -> io::Result<Token> {
+        self.advance().unwrap().unwrap();
+        self.handle_bad_read(msg, pos)
     }
 
     fn advance_to_next(&mut self) -> io::Result<Option<char>> {
@@ -314,7 +312,7 @@ impl<'a> Lexer<'a> {
                 };
                 Ok(token)
             }
-            ch => self.handle_bad_read("Unknown character", ch),
+            _ => self.handle_bad_read("Unknown character", self.src),
         }
     }
 

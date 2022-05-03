@@ -1,10 +1,9 @@
 use std::fmt::{Debug, Display, Formatter, Result as FormatResult};
 use std::io;
 use std::iter::Peekable;
-use std::mem;
 
 // use crate::interpreter::{ExecutionContext, Interpret, InterpreterResult};
-use crate::lexer::{Lexer, Position, Source, Token, TokenType};
+use crate::lexer::{Lexer, Source, Token, TokenType};
 
 mod grammar;
 
@@ -249,6 +248,10 @@ impl<'a> Parser<'a> {
             }
 
             let op_token = self.lexer.next().unwrap().unwrap();
+            if let TokenType::Bad(msg, source) = op_token.value {
+                return Err(Error::Bad(msg, source))
+            }
+            
             let right = func(self)?;
 
             left = SyntaxNode::Term(TermNode {
@@ -283,15 +286,6 @@ impl<'a> Parser<'a> {
             //         self.source,
             //     ),
             // ))),
-        }
-    }
-
-    fn consume_if(&mut self, token_type: &'static TokenType) {
-        match self.lexer.peek() {
-            Some(Ok(Token { value, .. })) if value == token_type => {
-                self.lexer.next();
-            }
-            _ => {}
         }
     }
 

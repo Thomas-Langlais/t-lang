@@ -18,7 +18,7 @@ impl<'a> Lexer<'a> {
                 Some(Ok(ch)) if ch.is_word() => identifier.push(self.advance().unwrap()?),
                 Some(Ok(ch)) if ch.is_separator() => break,
                 Some(Ok(_)) => {
-                    return self.handle_bad_peek("Unexpected character in identifier/keyword");
+                    return self.handle_bad_peek("Unexpected character in identifier/keyword", starting_position);
                 }
                 Some(Err(_)) => return Err(self.advance().unwrap().unwrap_err()),
                 None => break,
@@ -47,7 +47,7 @@ impl<'a> Lexer<'a> {
             match self.input.peek() {
                 Some(Ok('.')) => {
                     if found_dot {
-                        return self.handle_bad_peek("Too many dots in numeric literal");
+                        return self.handle_bad_peek("Too many dots in numeric literal", starting_position);
                     }
                     s.push(self.advance().unwrap()?);
                     found_dot = true;
@@ -55,7 +55,7 @@ impl<'a> Lexer<'a> {
                 Some(Ok(ch)) if ch.is_digit(10) => s.push(self.advance().unwrap()?),
                 Some(Ok(ch)) if ch.is_separator() => break,
                 Some(Ok(_)) => {
-                    return self.handle_bad_peek("Unexpected character in numeric literal");
+                    return self.handle_bad_peek("Unexpected character in numeric literal", starting_position);
                 }
                 Some(Err(_)) => return Err(self.advance().unwrap().unwrap_err()),
                 None => break,
@@ -63,7 +63,7 @@ impl<'a> Lexer<'a> {
         }
         if found_dot {
             if s.ends_with('.') {
-                return self.handle_bad_read("Unknown character: .", s.chars().last().unwrap());
+                return self.handle_bad_read("Unknown character: .", self.src);
             }
             match s.parse::<f64>() {
                 Ok(f) => Ok(Token {
@@ -71,7 +71,7 @@ impl<'a> Lexer<'a> {
                     source: Source::new(starting_position, self.src),
                 }),
                 Err(_) => Ok(Token {
-                    value: TokenType::BadParse(
+                    value: TokenType::Bad(
                         "Float could not be parsed",
                         Source::new(starting_position, self.src),
                     ),
@@ -85,7 +85,7 @@ impl<'a> Lexer<'a> {
                     source: Source::new(starting_position, self.src),
                 }),
                 Err(_) => Ok(Token {
-                    value: TokenType::BadParse(
+                    value: TokenType::Bad(
                         "Integer could not be parsed",
                         Source::new(starting_position, self.src),
                     ),
@@ -238,7 +238,7 @@ impl<'a> Lexer<'a> {
                     source: Source::new(start, end),
                 })
             }
-            Some(Ok(_)) => self.handle_bad_peek("Incomplete token error - Expected '&&'"),
+            Some(Ok(_)) => self.handle_bad_peek("Incomplete token error - Expected '&&'", start),
             // Err(LexerError::new(
             //     "Incomplete token error",
             //     "Expected '&&'".to_string(),
@@ -268,7 +268,7 @@ impl<'a> Lexer<'a> {
                     source: Source::new(start, end),
                 })
             }
-            Some(Ok(_)) => self.handle_bad_peek("Incomplete token error - Expected '||' or '|-'"),
+            Some(Ok(_)) => self.handle_bad_peek("Incomplete token error - Expected '||' or '|-'", start),
             // Some(_) => Some(Err(LexerError::new(
             //     "Incomplete token error",
             //     "Expected '||'".to_string(),

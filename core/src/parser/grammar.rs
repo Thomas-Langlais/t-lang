@@ -1,117 +1,88 @@
-use std::mem;
-
 use crate::lexer::{CompType, LogicType, OperationTokenType, Token, TokenType};
 use crate::parser::{
-    ConditionNode, FactorNode, IfNode, IllegalSyntaxError, InternalParseResult, ParseContext,
-    ParseError, Parser, StatementListNode, StatementNode, SyntaxNode, UnaryNode, VariableNode,
+    ConditionNode, FactorNode, IfNode, Parser, Result,
+    StatementListNode, StatementNode, SyntaxNode, UnaryNode, VariableNode,
 };
 
-use super::{BreakNode, ContinueNode, ForNode, WhileNode};
+use super::{BreakNode, ContinueNode, Error, ForNode, WhileNode};
 
 impl<'a> Parser<'a> {
     /// atom = INT|FLOAT|IDENTIFIER
     ///      = LParen expression RParen
-    fn atom(&mut self) -> InternalParseResult {
-        let mut context = ParseContext::default();
-
-        match self.current_token {
-            Some(Token {
+    fn atom(&mut self) -> Result<SyntaxNode> {
+        match self.lexer.peek() {
+            Some(Ok(Token {
                 value: TokenType::Int(_) | TokenType::Float(_),
-                source,
-            }) => {
-                let token = mem::replace(&mut self.current_token, None).unwrap();
-                context.advance();
-                self.advance();
-                let pos = (source.start.column, source.end.column);
-                let line = source.start.line;
-                context.success(SyntaxNode::Factor(FactorNode { token, pos, line }))
+                ..
+            })) => {
+                let token = self.lexer.next().unwrap().unwrap();
+                Ok(SyntaxNode::Factor(FactorNode { token }))
             }
-            Some(Token {
+            Some(Ok(Token {
                 value: TokenType::Identifier(_),
-                source,
-            }) => {
-                let identifier_token = mem::replace(&mut self.current_token, None).unwrap();
-                context.advance();
-                self.advance();
-                let pos = (source.start.column, source.end.column);
-                let line = source.start.line;
-                context.success(SyntaxNode::Variable(VariableNode {
+                ..
+            })) => {
+                let identifier_token = self.lexer.next().unwrap().unwrap();
+                Ok(SyntaxNode::Variable(VariableNode {
                     identifier_token,
                     expression: None,
                     assign: false,
-                    pos,
-                    line,
                 }))
             }
-            Some(Token {
+            Some(Ok(Token {
                 value: TokenType::LParen('('),
-                source,
-            }) => {
-                let start = source.start.column;
-                context.advance();
-                self.advance();
+                ..
+            })) => {
+                self.lexer.next().unwrap().unwrap();
+                let expression = self.expression()?;
 
-                let mut expression = context.register(self.expression())?;
-                let token_ref = self.current_token.as_ref().unwrap();
-                let token_type = &token_ref.value;
-                let location = token_ref.source;
-
-                if token_type == &TokenType::RParen(')') {
-                    let end = location.end.column;
-                    expression.set_pos((start, end));
-                    context.advance();
-                    self.advance();
-                    context.success(expression)
-                } else {
-                    let source = self.source;
-                    context.failure(ParseError::SyntaxError(
-                        IllegalSyntaxError::new_invalid_syntax("Expected ')'", location, source),
-                    ))
+                match self.lexer.peek() {
+                    Some(Ok(Token {
+                        value: TokenType::RParen(')'),
+                        ..
+                    })) => {
+                        self.lexer.next();
+                        Ok(expression)
+                    }
+                    Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
+                    _ => Err(Error::Bad(
+                        "Expected ')'",
+                        self.lexer.peek().as_ref().unwrap().as_ref().unwrap().source,
+                    )),
                 }
             }
-            Some(Token { source, .. }) => context.failure(ParseError::SyntaxError(
-                IllegalSyntaxError::new_invalid_syntax(
-                    "Expected an number, variable, number sign (+/-), or if statement",
-                    source,
-                    self.source,
-                ),
+            Some(Ok(Token { source, .. })) => Err(Error::Bad(
+                "Expected an number, variable, number sign (+/-), or if statement",
+                *source,
             )),
-            None => unreachable!(
-                "should not ever reach the end, EOF is always last and is never parser"
-            ),
+            _ => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
         }
     }
 
     /// factor = atom
     ///        = (PLUS|MINUS) factor
-    fn factor(&mut self) -> InternalParseResult {
-        match self.current_token.as_ref().unwrap().value {
-            TokenType::Operation(OperationTokenType::Arithmetic('+'))
-            | TokenType::Operation(OperationTokenType::Arithmetic('-')) => {
-                let mut context = ParseContext::default();
-
-                let op_token = mem::replace(&mut self.current_token, None).unwrap();
-                context.advance();
-                self.advance();
-
-                let factor = context.register(self.factor())?;
-                let (_, end) = factor.get_pos();
-                let start = op_token.source.start.column;
-                let pos = (start, end);
-                let line = op_token.source.start.line;
-                context.success(SyntaxNode::Unary(UnaryNode {
+    fn factor(&mut self) -> Result<SyntaxNode> {
+        match self.lexer.peek() {
+            Some(Ok(Token {
+                value:
+                    TokenType::Operation(OperationTokenType::Arithmetic('+'))
+                    | TokenType::Operation(OperationTokenType::Arithmetic('-')),
+                ..
+            })) => {
+                let op_token = self.lexer.next().unwrap().unwrap();
+                let factor = self.factor()?;
+                Ok(SyntaxNode::Unary(UnaryNode {
                     node: Box::new(factor),
                     op_token,
-                    pos,
-                    line,
                 }))
             }
-            _ => self.atom(),
+            Some(Ok(_)) => self.atom(),
+            _ => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
         }
     }
 
     /// term = factor (MUL|DIV factor)*
-    fn term(&mut self) -> InternalParseResult {
+    fn term(&mut self) -> Result<SyntaxNode> {
         let func = |parser: &mut Parser| parser.factor();
         self.bin_op(
             func,
@@ -122,67 +93,64 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// LBlock statements RBlock
-    fn block(&mut self) -> InternalParseResult {
-        let mut context = ParseContext::default();
+    /// LBlock statement+ RBlock
+    fn block(&mut self) -> Result<SyntaxNode> {
+        self.expect_and_consume(&TokenType::LBlock, "expected |-")?;
+        // let statements = self.statements()?;
 
-        self.expect_and_consume(&mut context, &TokenType::LBlock, "expected |-")?;
+        let statement = self.statement()?;
+        let mut statements = vec![statement];
 
-        let statements = context.register(self.statements())?;
+        while !matches!(self.lexer.peek(), Some(Ok(Token {
+            value: TokenType::RBlock,
+            ..
+        }))) {
+            statements.push(self.statement()?);
+        }
 
-        self.expect_and_consume(&mut context, &TokenType::RBlock, "expected -|")?;
-
-        context.success(statements)
+        self.expect_and_consume(&TokenType::RBlock, "expected -|")?;
+        Ok(SyntaxNode::Statements(StatementListNode { statements }))
     }
 
     /// if_stmt = KW:IF expr block
     ///             (KW:ELSE KW:IF expr block)* | (KW:ELSE block)?
-    fn if_stmt(&mut self) -> InternalParseResult {
-        let mut context = ParseContext::default();
-
-        self.expect_and_consume(
-            &mut context,
-            &TokenType::Keyword("if"),
-            "expected an 'if' keyword token",
-        )?;
+    fn if_stmt(&mut self) -> Result<SyntaxNode> {
+        self.expect_and_consume(&TokenType::Keyword("if"), "expected an 'if' keyword token")?;
 
         let mut node = IfNode {
             if_nodes: vec![ConditionNode {
-                condition: Box::new(context.register(self.expr())?),
-                statements: Box::new(context.register(self.block())?),
+                condition: Box::new(self.expr()?),
+                statements: Box::new(self.block()?),
             }],
             else_node: None,
-            pos: (0, 0),
         };
 
-        while let Some(Token {
+        while let Some(Ok(Token {
             value: TokenType::Keyword("else"),
             ..
-        }) = self.current_token
+        })) = self.lexer.peek()
         {
-            self.advance();
-            context.advance();
+            self.lexer.next();
 
-            if let Some(Token {
+            if let Some(Ok(Token {
                 value: TokenType::Keyword("if"),
                 ..
-            }) = self.current_token
+            })) = self.lexer.peek()
             {
-                self.advance();
-                context.advance();
+                self.lexer.next();
                 node.if_nodes.push(ConditionNode {
-                    condition: Box::new(context.register(self.expr())?),
-                    statements: Box::new(context.register(self.block())?),
+                    condition: Box::new(self.expr()?),
+                    statements: Box::new(self.block()?),
                 });
 
                 continue;
             } else {
-                node.else_node = Some(Box::new(context.register(self.block())?));
+                node.else_node = Some(Box::new(self.block()?));
                 break;
             }
         }
 
-        context.success(SyntaxNode::If(node))
+        Ok(SyntaxNode::If(node))
     }
 
     /// for_stmt = KW:FOR
@@ -192,85 +160,62 @@ impl<'a> Parser<'a> {
     ///                     (decl_expr)?
     ///                 RParen
     ///            block
-    fn for_stmt(&mut self) -> InternalParseResult {
-        let mut context = ParseContext::default();
-
-        self.advance();
-        context.advance();
-
-        self.expect_and_consume(&mut context, &TokenType::LParen('('), "expected (")?;
-        let declaration = match &self.current_token {
-            Some(Token {
+    fn for_stmt(&mut self) -> Result<SyntaxNode> {
+        self.lexer.next();
+        self.expect_and_consume(&TokenType::LParen('('), "expected (")?;
+        let declaration = match self.lexer.peek() {
+            Some(Ok(Token {
                 value: TokenType::Keyword("let"),
                 ..
-            }) => Some(Box::new(context.register(self.decl_expr())?)),
+            })) => Some(Box::new(self.decl_expr()?)),
             _ => None,
         };
-        self.expect_and_consume(&mut context, &TokenType::LineTerm, "expected ;")?;
+        self.expect_and_consume(&TokenType::LineTerm, "expected ;")?;
 
-        let condition = match &self.current_token {
-            Some(Token {
+        let condition = match self.lexer.peek() {
+            Some(Ok(Token {
                 value: TokenType::LineTerm,
                 ..
-            }) => None,
-            _ => Some(Box::new(context.register(self.expr())?)),
+            })) => None,
+            _ => Some(Box::new(self.expr()?)),
         };
-        self.expect_and_consume(&mut context, &TokenType::LineTerm, "expected ;")?;
+        self.expect_and_consume(&TokenType::LineTerm, "expected ;")?;
 
-        let increment = match &self.current_token {
-            Some(Token {
+        let increment = match self.lexer.peek() {
+            Some(Ok(Token {
                 value: TokenType::Keyword("let"),
                 ..
-            }) => Some(Box::new(context.register(self.decl_expr())?)),
+            })) => Some(Box::new(self.decl_expr()?)),
             _ => None,
         };
-        self.expect_and_consume(&mut context, &TokenType::RParen(')'), "expected )")?;
+        self.expect_and_consume(&TokenType::RParen(')'), "expected )")?;
 
-        let block = Box::new(self.expect_and_parse(
-            &mut context,
-            |p| p.block(),
-            &TokenType::LBlock,
-            "expected |-",
-        )?);
+        let block =
+            Box::new(self.expect_and_parse(|p| p.block(), &TokenType::LBlock, "expected |-")?);
 
-        let pos = (0, 0);
-        context.success(SyntaxNode::For(ForNode {
+        Ok(SyntaxNode::For(ForNode {
             declaration,
             condition,
             increment,
             block,
-            pos,
         }))
     }
 
     /// while_expr = KW:WHILE LParen expr RParen block
-    fn while_stmt(&mut self) -> InternalParseResult {
-        let mut context = ParseContext::default();
+    fn while_stmt(&mut self) -> Result<SyntaxNode> {
+        self.lexer.next();
+        self.expect_and_consume(&TokenType::LParen('('), "expected (")?;
+        let condition = Box::new((self.expr())?);
+        self.expect_and_consume(&TokenType::RParen(')'), "expected )")?;
 
-        self.advance();
-        context.advance();
+        let block =
+            Box::new(self.expect_and_parse(|p| p.block(), &TokenType::LBlock, "expected |-")?);
 
-        self.expect_and_consume(&mut context, &TokenType::LParen('('), "expected (")?;
-        let condition = Box::new(context.register(self.expr())?);
-        self.expect_and_consume(&mut context, &TokenType::RParen(')'), "expected )")?;
-
-        let block = Box::new(self.expect_and_parse(
-            &mut context,
-            |p| p.block(),
-            &TokenType::LBlock,
-            "expected |-",
-        )?);
-
-        let pos = (0, 0);
-        context.success(SyntaxNode::While(WhileNode {
-            condition,
-            block,
-            pos,
-        }))
+        Ok(SyntaxNode::While(WhileNode { condition, block }))
     }
 
     /// arith_expr = term (PLUS|MINUS term)*
-    fn arith_expr(&mut self) -> InternalParseResult {
+    fn arith_expr(&mut self) -> Result<SyntaxNode> {
         let func = |parser: &mut Parser| parser.term();
         self.bin_op(
             func,
@@ -283,27 +228,15 @@ impl<'a> Parser<'a> {
 
     /// comp_expr = NOT comp_expr
     ///           = arith_expr ((EE|NE|LT|GT|LTE|GTE) arith_expr)*
-    fn comp_expr(&mut self) -> InternalParseResult {
-        if let Some(Token {
+    fn comp_expr(&mut self) -> Result<SyntaxNode> {
+        if let Some(Ok(Token {
             value: TokenType::Operation(OperationTokenType::Logic(LogicType::NOT)),
             ..
-        }) = self.current_token
+        })) = self.lexer.peek()
         {
-            let mut context = ParseContext::default();
-
-            let op_token = mem::replace(&mut self.current_token, None).unwrap();
-            context.advance();
-            self.advance();
-
-            let node = Box::new(context.register(self.comp_expr())?);
-            let pos = (op_token.source.start.column, node.get_pos().1);
-            let line = op_token.source.start.line;
-            context.success(SyntaxNode::Unary(UnaryNode {
-                op_token,
-                node,
-                pos,
-                line,
-            }))
+            let op_token = self.lexer.next().unwrap().unwrap();
+            let node = Box::new(self.comp_expr()?);
+            Ok(SyntaxNode::Unary(UnaryNode { op_token, node }))
         } else {
             let func = |parser: &mut Parser| parser.arith_expr();
             self.bin_op(
@@ -321,76 +254,49 @@ impl<'a> Parser<'a> {
     }
 
     /// decl_expr = KW:LET IDENTIFIER EQ expr
-    fn decl_expr(&mut self) -> InternalParseResult {
-        let mut context = ParseContext::default();
-
-        let let_token = mem::replace(&mut self.current_token, None).unwrap();
-        context.advance();
-        self.advance();
-
-        let identifier_token = match self.current_token {
-            Some(Token {
+    fn decl_expr(&mut self) -> Result<SyntaxNode> {
+        self.lexer.next().unwrap().unwrap();
+        let identifier_token = match self.lexer.peek() {
+            Some(Ok(Token {
                 value: TokenType::Identifier(_),
                 ..
-            }) => {
-                let token = mem::replace(&mut self.current_token, None).unwrap();
-                context.advance();
-                self.advance();
-                token
-            }
+            })) => self.lexer.next().unwrap().unwrap(),
+            Some(Err(_)) => return Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
             _ => {
-                let location = match &self.current_token {
-                    Some(token) => token.source,
-                    None => let_token.source,
-                };
-                return context.failure(ParseError::SyntaxError(
-                    IllegalSyntaxError::new_invalid_syntax(
-                        "Expected a variable name",
-                        location,
-                        self.source,
-                    ),
+                return Err(Error::Bad(
+                    "Expected a variable name",
+                    self.lexer.peek().as_ref().unwrap().as_ref().unwrap().source,
                 ));
             }
         };
 
-        match self.current_token {
-            Some(Token {
+        match self.lexer.peek() {
+            Some(Ok(Token {
                 value: TokenType::Operation(OperationTokenType::EQ),
                 ..
-            }) => {
-                context.advance();
-                self.advance();
+            })) => {
+                self.lexer.next();
             }
+            Some(Err(_)) => return Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
             _ => {
-                let location = match &self.current_token {
-                    Some(token) => token.source,
-                    None => identifier_token.source,
-                };
-                return context.failure(ParseError::SyntaxError(
-                    IllegalSyntaxError::new_invalid_syntax(
-                        "Expected a variable name",
-                        location,
-                        self.source,
-                    ),
+                return Err(Error::Bad(
+                    "Expected a variable name",
+                    self.lexer.peek().as_ref().unwrap().as_ref().unwrap().source,
                 ));
             }
         };
 
-        let expr = context.register(self.expr())?;
-        let pos = (let_token.source.start.column, expr.get_pos().1);
-        let line = let_token.source.start.line;
+        let expr = self.expr()?;
         let expression = Some(Box::new(expr));
-        context.success(SyntaxNode::Variable(VariableNode {
+        Ok(SyntaxNode::Variable(VariableNode {
             identifier_token,
             expression,
             assign: true,
-            pos,
-            line,
         }))
     }
 
     /// expr = comp_expr ((AND|OR) comp_expr)*
-    fn expr(&mut self) -> InternalParseResult {
+    fn expr(&mut self) -> Result<SyntaxNode> {
         let func = |parser: &mut Parser| parser.comp_expr();
         self.bin_op(
             func,
@@ -403,11 +309,11 @@ impl<'a> Parser<'a> {
 
     /// expression = decl_expr
     ///            = expr
-    fn expression(&mut self) -> InternalParseResult {
-        if let Some(Token {
+    fn expression(&mut self) -> Result<SyntaxNode> {
+        if let Some(Ok(Token {
             value: TokenType::Keyword("let"),
             ..
-        }) = self.current_token
+        })) = self.lexer.peek()
         {
             self.decl_expr()
         } else {
@@ -415,129 +321,58 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// stmt = KW:BREAK
-    ///      = KW:CONTINUE
-    ///      = expression
-    fn stmt(&mut self) -> InternalParseResult {
-        let mut context = ParseContext::default();
-
-        match self.current_token {
-            Some(Token {
-                value: TokenType::Keyword("brk"),
-                ..
-            }) => {
-                let token = self.current_token.take().unwrap();
-                self.advance();
-                context.advance();
-                context.success(SyntaxNode::Break(BreakNode(token)))
-            }
-            Some(Token {
-                value: TokenType::Keyword("con"),
-                ..
-            }) => {
-                let token = self.current_token.take().unwrap();
-                self.advance();
-                context.advance();
-                context.success(SyntaxNode::Continue(ContinueNode(token)))
-            }
-            Some(_) => {
-                let inner = Box::new(context.register(self.expression())?);
-                let pos = inner.get_pos();
-                let line = 0;
-                context.success(SyntaxNode::Statement(StatementNode { inner, pos, line }))
-            }
-            _ => unreachable!("Infallible since EOF is never parsed"),
-        }
-    }
-
-    /// statement = if_stmt LINETERM?
-    ///           = for_stmt LINETERM?
-    ///           = while_stmt LINETERM?
-    ///           = stmt LINETERM
-    fn statement(&mut self) -> InternalParseResult {
-        let mut context = ParseContext::default();
-
-        match self.current_token {
-            Some(Token {
+    /// statement = if_stmt
+    ///           = for_stmt
+    ///           = while_stmt
+    ///           = KW:CONTINUE LINETERM
+    ///           = KW:BREAK LINETERM
+    ///           = expression LINETERM
+    pub fn statement(&mut self) -> Result<SyntaxNode> {
+        match self.lexer.peek() {
+            Some(Ok(Token {
                 value: TokenType::Keyword("if"),
                 ..
-            }) => {
-                let inner = Box::new(context.register(self.if_stmt())?);
-                self.consume_if(&mut context, &TokenType::LineTerm);
-
-                let pos = inner.get_pos();
-                let line = 0;
-                context.success(SyntaxNode::Statement(StatementNode { inner, pos, line }))
+            })) => {
+                let inner = Box::new((self.if_stmt())?);
+                Ok(SyntaxNode::Statement(StatementNode { inner }))
             }
-            Some(Token {
+            Some(Ok(Token {
                 value: TokenType::Keyword("for"),
                 ..
-            }) => {
-                let inner = Box::new(context.register(self.for_stmt())?);
-                self.consume_if(&mut context, &TokenType::LineTerm);
-
-                let pos = inner.get_pos();
-                let line = 0;
-                context.success(SyntaxNode::Statement(StatementNode { inner, pos, line }))
+            })) => {
+                let inner = Box::new((self.for_stmt())?);
+                Ok(SyntaxNode::Statement(StatementNode { inner }))
             }
-            Some(Token {
+            Some(Ok(Token {
                 value: TokenType::Keyword("while"),
                 ..
-            }) => {
-                let inner = Box::new(context.register(self.while_stmt())?);
-                self.consume_if(&mut context, &TokenType::LineTerm);
-                
-                let pos = inner.get_pos();
-                let line = 0;
-                context.success(SyntaxNode::Statement(StatementNode { inner, pos, line }))
+            })) => {
+                let inner = Box::new((self.while_stmt())?);
+                Ok(SyntaxNode::Statement(StatementNode { inner }))
             }
-            Some(_) => {
-                let inner = Box::new(context.register(self.stmt())?);
-                self.expect_and_consume(&mut context, &TokenType::LineTerm, "Expected ';'")?;
-
-                let pos = inner.get_pos();
-                let line = 0;
-                context.success(SyntaxNode::Statement(StatementNode { inner, pos, line }))
+            Some(Ok(Token {
+                value: TokenType::Keyword("brk"),
+                ..
+            })) => {
+                let token = self.lexer.next().unwrap().unwrap();
+                self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
+                Ok(SyntaxNode::Break(BreakNode(token)))
             }
+            Some(Ok(Token {
+                value: TokenType::Keyword("con"),
+                ..
+            })) => {
+                let token = self.lexer.next().unwrap().unwrap();
+                self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
+                Ok(SyntaxNode::Continue(ContinueNode(token)))
+            }
+            Some(Ok(_)) => {
+                let inner = Box::new(self.expression()?);
+                self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
+                Ok(SyntaxNode::Statement(StatementNode { inner }))
+            }
+            Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
             _ => unreachable!("Infallible since EOF is never parsed"),
         }
-    }
-
-    /// statements = statement statement*
-    pub fn statements(&mut self) -> InternalParseResult {
-        let mut context = ParseContext::default();
-
-        let statement = context.register(self.statement())?;
-        let pos = statement.get_pos();
-        let mut statements = vec![statement];
-
-        statements.append(&mut {
-            let mut vec: Vec<SyntaxNode> = Vec::new();
-
-            loop {
-                let statement = match context.try_register(self.statement()) {
-                    Ok(s) => s,
-                    Err(Err(_)) => {
-                        // because the LINETERM+ is not met, it moves to the next state
-                        self.reverse(context.reverse_advances);
-                        break;
-                    }
-                    _ => unreachable!(
-                        "Infallible, context.try_register should only wrap errors in an error"
-                    ),
-                };
-
-                vec.push(statement);
-            }
-
-            vec
-        });
-
-        let (start, _) = pos;
-        let list_pos = (start, statements.last().unwrap().get_pos().1);
-        context.success(SyntaxNode::Statements(StatementListNode {
-            statements,
-            pos: list_pos,
-        }))
     }
 }

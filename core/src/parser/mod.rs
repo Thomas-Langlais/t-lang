@@ -1,23 +1,19 @@
 use std::fmt::{Debug, Display, Formatter, Result as FormatResult};
+use std::io;
+use std::iter::Peekable;
 use std::mem;
 
-use crate::interpreter::{ExecutionContext, Interpret, InterpreterResult};
-use crate::lexer::{Position, Source, Token, TokenType};
+// use crate::interpreter::{ExecutionContext, Interpret, InterpreterResult};
+use crate::lexer::{Lexer, Position, Source, Token, TokenType};
 
 mod grammar;
 
+#[derive(Debug)]
 pub enum ParseError {
     SyntaxError(IllegalSyntaxError),
 }
 
-impl Display for ParseError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
-        match self {
-            ParseError::SyntaxError(err) => err.fmt(f),
-        }
-    }
-}
-
+#[derive(Debug)]
 pub struct IllegalSyntaxError {
     pub name: String,
     pub details: String,
@@ -93,23 +89,17 @@ pub struct VariableNode {
     pub identifier_token: Token,
     pub expression: Option<Box<SyntaxNode>>,
     pub assign: bool,
-    pub pos: (usize, usize),
-    pub line: usize,
 }
 
 #[derive(Debug)]
 pub struct FactorNode {
     pub token: Token,
-    pub pos: (usize, usize),
-    pub line: usize,
 }
 
 #[derive(Debug)]
 pub struct UnaryNode {
     pub op_token: Token,
     pub node: Box<SyntaxNode>,
-    pub pos: (usize, usize),
-    pub line: usize,
 }
 
 #[derive(Debug)]
@@ -117,8 +107,6 @@ pub struct TermNode {
     pub op_token: Token,
     pub left_node: Box<SyntaxNode>,
     pub right_node: Box<SyntaxNode>,
-    pub pos: (usize, usize),
-    pub line: usize,
 }
 
 #[derive(Debug)]
@@ -131,20 +119,16 @@ pub struct ConditionNode {
 pub struct IfNode {
     pub if_nodes: Vec<ConditionNode>,
     pub else_node: Option<Box<SyntaxNode>>,
-    pub pos: (usize, usize),
 }
 
 #[derive(Debug)]
 pub struct StatementNode {
     pub inner: Box<SyntaxNode>,
-    pub pos: (usize, usize),
-    pub line: usize,
 }
 
 #[derive(Debug)]
 pub struct StatementListNode {
     pub statements: Vec<SyntaxNode>,
-    pub pos: (usize, usize),
 }
 
 #[derive(Debug)]
@@ -153,14 +137,12 @@ pub struct ForNode {
     pub condition: Option<Box<SyntaxNode>>,
     pub increment: Option<Box<SyntaxNode>>,
     pub block: Box<SyntaxNode>,
-    pub pos: (usize, usize),
 }
 
 #[derive(Debug)]
 pub struct WhileNode {
     pub condition: Box<SyntaxNode>,
     pub block: Box<SyntaxNode>,
-    pub pos: (usize, usize),
 }
 
 #[derive(Debug)]
@@ -184,48 +166,6 @@ pub enum SyntaxNode {
     Term(TermNode),
 }
 
-impl SyntaxNode {
-    fn get_pos(&self) -> (usize, usize) {
-        match self {
-            Self::If(node) => node.pos,
-            Self::Statements(node) => node.pos,
-            Self::Statement(node) => node.pos,
-            Self::For(node) => node.pos,
-            Self::While(node) => node.pos,
-            Self::Continue(ContinueNode(node)) => {
-                (node.source.start.column, node.source.end.column)
-            }
-            Self::Break(BreakNode(node)) => (node.source.start.column, node.source.end.column),
-            Self::Variable(node) => node.pos,
-            Self::Factor(node) => node.pos,
-            Self::Unary(node) => node.pos,
-            Self::Term(node) => node.pos,
-        }
-    }
-
-    fn set_pos(&mut self, pos: (usize, usize)) {
-        match self {
-            Self::If(node) => node.pos = pos,
-            Self::Statements(node) => node.pos = pos,
-            Self::Statement(node) => node.pos = pos,
-            Self::For(node) => node.pos = pos,
-            Self::While(node) => node.pos = pos,
-            Self::Continue(ContinueNode(node)) => {
-                node.source.start.column = pos.0;
-                node.source.end.column = pos.1;
-            }
-            Self::Break(BreakNode(node)) => {
-                node.source.start.column = pos.0;
-                node.source.end.column = pos.1;
-            }
-            Self::Variable(node) => node.pos = pos,
-            Self::Factor(node) => node.pos = pos,
-            Self::Unary(node) => node.pos = pos,
-            Self::Term(node) => node.pos = pos,
-        }
-    }
-}
-
 pub struct AbstractSyntaxTree {
     inner: SyntaxNode,
 }
@@ -236,227 +176,165 @@ impl Debug for AbstractSyntaxTree {
     }
 }
 
-impl<'a> Interpret<'a> for AbstractSyntaxTree {
-    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
-        self.inner.interpret(context)
+// impl<'a> Interpret<'a> for AbstractSyntaxTree {
+//     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+//         self.inner.interpret(context)
+//     }
+// }
+
+pub struct Parser<'a> {
+    lexer: Peekable<Lexer<'a>>,
+}
+
+impl<'a> From<&'a mut dyn io::Read> for Parser<'a> {
+    fn from(reader: &'a mut dyn io::Read) -> Self {
+        Parser {
+            lexer: Lexer::from(reader).peekable(),
+        }
     }
 }
 
 #[derive(Debug)]
-pub struct ParserOkRunner(ParseContext, SyntaxNode);
-pub struct ParserErrorRunner(ParseContext, ParseError);
-
-impl From<InternalParseResult> for ParserErrorRunner {
-    fn from(res: InternalParseResult) -> Self {
-        res.expect_err("This is infallible, there should NEVER the Result::Ok variant")
-    }
+pub enum Error {
+    Bad(&'static str, Source),
+    Io(io::Error),
 }
 
-pub struct Parser<'a> {
-    source: &'a [u8],
-    index: usize,
-    tokens: Vec<Token>,
-    current_token: Option<Token>,
-}
-
-#[derive(Clone, Copy, Default, Debug)]
-struct ParseContext {
-    advances: usize,
-    reverse_advances: usize,
-}
-
-impl ParseContext {
-    fn advance(&mut self) {
-        self.advances += 1;
-    }
-
-    fn register(&mut self, result: InternalParseResult) -> Result<SyntaxNode, InternalParseResult> {
-        self.advances += match &result {
-            Ok(ParserOkRunner(ctx, _)) => ctx.advances,
-            Err(ParserErrorRunner(ctx, _)) => ctx.advances,
-        };
-
-        match result {
-            Ok(ParserOkRunner(_, node)) => Ok(node),
-            Err(ParserErrorRunner(_, err)) => Err(Err(ParserErrorRunner(*self, err))),
-        }
-    }
-
-    fn try_register(
-        &mut self,
-        result: InternalParseResult,
-    ) -> Result<SyntaxNode, InternalParseResult> {
-        if let Err(ParserErrorRunner(context, _)) = &result {
-            self.reverse_advances = context.advances;
-        }
-        self.register(result)
-    }
-
-    fn success(self, node: SyntaxNode) -> InternalParseResult {
-        Ok(ParserOkRunner(self, node))
-    }
-
-    fn failure(self, node: ParseError) -> InternalParseResult {
-        Err(ParserErrorRunner(self, node))
-    }
-}
-
-type InternalParseResult = Result<ParserOkRunner, ParserErrorRunner>;
+type Result<T> = std::result::Result<T, Error>;
 
 impl<'a> Parser<'a> {
-    pub fn new(tokens: Vec<Token>, source: &'a [u8]) -> Parser<'a> {
-        let mut parser = Parser {
-            source,
-            index: 0,
-            tokens,
-            current_token: None,
-        };
-        parser.update_token();
+    // pub fn new(tokens: Vec<Token>, source: &'a [u8]) -> Parser<'a> {
+    //     let mut parser = Parser {
+    //         source,
+    //         index: 0,
+    //         tokens,
+    //         current_token: None,
+    //     };
+    //     parser.update_token();
 
-        parser
-    }
+    //     parser
+    // }
 
-    fn advance(&mut self) {
-        self.index += 1;
-        self.update_token();
-    }
+    // fn advance(&mut self) {
+    //     self.index += 1;
+    //     self.update_token();
+    // }
 
-    fn reverse(&mut self, amount: usize) {
-        self.index -= amount;
-        self.update_token();
-    }
+    // fn reverse(&mut self, amount: usize) {
+    //     self.index -= amount;
+    //     self.update_token();
+    // }
 
-    fn update_token(&mut self) {
-        if (0..self.tokens.len()).contains(&self.index) {
-            self.current_token = Some(self.tokens[self.index].clone())
-        } else {
-            self.current_token = None
-        }
-    }
+    // fn update_token(&mut self) {
+    //     if (0..self.tokens.len()).contains(&self.index) {
+    //         self.current_token = Some(self.tokens[self.index].clone())
+    //     } else {
+    //         self.current_token = None
+    //     }
+    // }
 
     /**
      * helper functions for parsing grammar nodes into the stacks
      */
     fn bin_op(
         &mut self,
-        func: fn(&mut Parser) -> InternalParseResult,
+        func: fn(&mut Parser) -> Result<SyntaxNode>,
         ops: &[TokenType],
-    ) -> InternalParseResult {
-        let mut context = ParseContext::default();
-        let mut left = context.register(func(self))?;
+    ) -> Result<SyntaxNode> {
+        let mut left = func(self)?;
 
-        while let Some(token) = &self.current_token {
+        while let Some(Ok(token)) = self.lexer.peek() {
             if !ops.iter().any(|op| token.value == *op) {
                 break;
             }
 
-            let op_token = mem::replace(&mut self.current_token, None).unwrap();
-            context.advance();
-            self.advance();
-            let right = context.register(func(self))?;
-            let (start, _) = left.get_pos();
-            let (_, end) = right.get_pos();
-            let pos = (start, end);
-            let line = op_token.source.start.line;
+            let op_token = self.lexer.next().unwrap().unwrap();
+            let right = func(self)?;
 
             left = SyntaxNode::Term(TermNode {
                 left_node: Box::new(left),
                 right_node: Box::new(right),
                 op_token,
-                pos,
-                line,
             });
         }
 
-        context.success(left)
+        Ok(left)
     }
 
     // TODO: refactor the grammar to use this utility func
     fn expect_and_consume(
         &mut self,
-        context: &mut ParseContext,
         token_type: &'static TokenType,
         error: &'static str,
-    ) -> Result<(), InternalParseResult> {
-        match &self.current_token {
-            Some(Token { value, .. }) if value == token_type => {
-                self.advance();
-                context.advance();
+    ) -> Result<()> {
+        match self.lexer.peek() {
+            Some(Ok(Token { value, .. })) if value == token_type => {
+                self.lexer.next();
                 Ok(())
             }
-            _ => Err(context.failure(ParseError::SyntaxError(
-                IllegalSyntaxError::new_invalid_syntax(
-                    error,
-                    self.current_token.as_ref().unwrap().source,
-                    self.source,
-                ),
-            ))),
+            Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
+            _ => Err(Error::Bad(
+                error,
+                self.lexer.peek().as_ref().unwrap().as_ref().unwrap().source,
+            )),
+            //     IllegalSyntaxError::new_invalid_syntax(
+            //         error,
+            //         self.current_token.as_ref().unwrap().source,
+            //         self.source,
+            //     ),
+            // ))),
         }
     }
 
-    fn consume_if(
-        &mut self,
-        context: &mut ParseContext,
-        token_type: &'static TokenType,
-    ) {
-        match &self.current_token {
-            Some(Token { value, .. }) if value == token_type => {
-                self.advance();
-                context.advance();
+    fn consume_if(&mut self, token_type: &'static TokenType) {
+        match self.lexer.peek() {
+            Some(Ok(Token { value, .. })) if value == token_type => {
+                self.lexer.next();
             }
-            _ => {},
+            _ => {}
         }
     }
 
     fn expect_and_parse<F>(
         &mut self,
-        context: &mut ParseContext,
         parse: F,
         token_type: &'static TokenType,
         error: &'static str,
-    ) -> Result<SyntaxNode, InternalParseResult>
+    ) -> Result<SyntaxNode>
     where
-        F: FnOnce(&mut Self) -> InternalParseResult,
+        F: FnOnce(&mut Self) -> Result<SyntaxNode>,
     {
-        match &self.current_token {
-            Some(Token { value, .. }) if value == token_type => {
-                Ok(context.register(parse(self))?)
-            }
-            _ => Err(context.failure(ParseError::SyntaxError(
-                IllegalSyntaxError::new_invalid_syntax(
-                    error,
-                    self.current_token.as_ref().unwrap().source,
-                    self.source,
-                ),
-            ))),
+        match self.lexer.peek() {
+            Some(Ok(Token { value, .. })) if value == token_type => Ok(parse(self)?),
+            Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
+            _ => Err(Error::Bad(
+                error,
+                self.lexer.peek().as_ref().unwrap().as_ref().unwrap().source,
+            )),
+            // _ => Err(context.failure(ParseError::SyntaxError(
+            //     IllegalSyntaxError::new_invalid_syntax(
+            //         error,
+            //         self.current_token.as_ref().unwrap().source,
+            //         self.source,
+            //     ),
+            // ))),
         }
     }
 
-    pub fn generate_syntax_tree(&mut self) -> Result<AbstractSyntaxTree, ParseError> {
-        let result = self.statements();
-        let current_token = self.current_token.as_ref().unwrap();
-        let token_type = &current_token.value;
+    pub fn parse_one(&mut self) -> Result<Option<SyntaxNode>> {
+        let res = match self.lexer.peek() {
+            Some(Ok(Token {
+                value: TokenType::EOF,
+                ..
+            })) => Ok(None),
+            Some(Ok(_)) => match self.statement() {
+                Ok(node) => Ok(Some(node)),
+                Err(e) => Err(e),
+            },
+            Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
+            _ => panic!("lexer always has a some"),
+        };
 
-        match result {
-            Ok(ParserOkRunner(_, node)) if matches!(token_type, &TokenType::EOF) => {
-                Ok(AbstractSyntaxTree { inner: node })
-            }
-            Err(ParserErrorRunner(_, err)) => Err(err),
-            _ => {
-                let start = current_token.source.start;
-                let end = Position {
-                    index: self.tokens.last().unwrap().source.end.index - 1,
-                    ..self.tokens.last().unwrap().source.end
-                };
-                let token_location = Source { start, end };
-                Err(ParseError::SyntaxError(
-                    IllegalSyntaxError::new_invalid_syntax(
-                        "Expected a variable declaration or expression",
-                        token_location,
-                        self.source,
-                    ),
-                ))
-            }
-        }
+        res
     }
 }

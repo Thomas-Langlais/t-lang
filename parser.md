@@ -7,16 +7,12 @@ This is used to restrict what is allowed to be used for programming purposes.
 
 # Grammar rules
 ```
-statements = statement statement*
-
-statement  = for_stmt LINETERM?
-           = while_stmt LINETERM?
-           = if_stmt LINETERM?
-           = stmt LINETERM
-
-stmt       = KW:CONTINUE
-           = KW:BREAK
-           = expression
+statement  = for_stmt
+           = while_stmt
+           = if_stmt
+           = KW:CONTINUE LINETERM
+           = KW:BREAK LINETERM
+           = expression LINETERM
 
 if_stmt    = KW:IF expr block
                 (KW:ELSE KW:IF expr block)*
@@ -29,7 +25,7 @@ for_stmt   = KW:FOR LParen (decl_expr)? LINETERM
 
 while_stmt = KW:WHILE LParen expr RParen block
 
-block      = LBlock statements RBlock
+block      = LBlock statement+ RBlock
 
 expression = decl_expr 
            = expr

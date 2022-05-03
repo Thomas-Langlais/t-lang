@@ -1,4 +1,3 @@
-use std::fmt::{self, Result as FormatResult};
 use std::iter::Peekable;
 
 use std::io;
@@ -159,9 +158,7 @@ trait CharOps {
 impl CharOps for char {
     fn is_separator(&self) -> bool {
         match *self {
-            '(' | ')' | '=' | '<' | '>' | ';' | '+' | '-' | '*' | '/' => {
-                true
-            }
+            '(' | ')' | '=' | '<' | '>' | ';' | '+' | '-' | '*' | '/' => true,
             ch => ch.is_space(),
         }
     }
@@ -202,6 +199,14 @@ impl<'a> From<&'a mut dyn io::Read> for Lexer<'a> {
     }
 }
 
+impl<'a> Iterator for Lexer<'a> {
+    type Item = io::Result<Token>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.read())
+    }
+}
+
 impl<'a> Lexer<'a> {
     fn handle_bad_read(&mut self, msg: &'static str, ch: char) -> io::Result<Token> {
         let pos = self.src;
@@ -220,7 +225,7 @@ impl<'a> Lexer<'a> {
             source: Source::new_single(pos),
         })
     }
-    
+
     fn handle_bad_peek(&mut self, msg: &'static str) -> io::Result<Token> {
         let ch = self.advance().unwrap().unwrap();
         self.handle_bad_read(msg, ch)
@@ -253,7 +258,7 @@ impl<'a> Lexer<'a> {
             Some(Err(_)) => {
                 let e = self.input.next().unwrap().unwrap_err();
                 Some(Err(e))
-            },
+            }
             None => None,
         }
     }
@@ -263,19 +268,22 @@ impl<'a> Lexer<'a> {
         if result.is_none() {
             return Ok(Token {
                 value: TokenType::EOF,
-                source: Source::new_single(self.src)
-            })
+                source: Source::new_single(self.src),
+            });
         }
         let ch = result.unwrap();
 
         // check the contents of the context
         match ch {
-            'a'..='z' | 'A'..='Z' => {
-                self.parse_identifier(ch, self.src)
-            }
-            '0'..='9' => {
-                self.parse_number(ch, self.src)
-            }
+            'a'..='z' | 'A'..='Z' => self.parse_identifier(ch, self.src),
+            '0'..='9' => self.parse_number(ch, self.src),
+            '-' => self.parse_minus(self.src),
+            '=' => self.parse_equal(self.src),
+            '!' => self.parse_not(self.src),
+            '&' => self.parse_and(self.src),
+            '|' => self.parse_or(self.src),
+            '<' => self.parse_lesser(self.src),
+            '>' => self.parse_greater(self.src),
             op @ ('+' | '*' | '/') => {
                 // create the token
                 let token = Token {
@@ -284,7 +292,6 @@ impl<'a> Lexer<'a> {
                 };
                 Ok(token)
             }
-            '-' => self.parse_minus(self.src),
             '(' => {
                 let token = Token {
                     value: TokenType::LParen('('),
@@ -300,24 +307,6 @@ impl<'a> Lexer<'a> {
                 };
                 Ok(token)
             }
-            '=' => {
-                self.parse_equal(self.src)
-            }
-            '!' => {
-                self.parse_not(self.src)
-            }
-            '&' => {
-                self.parse_and(self.src)
-            }
-            '|' => {
-                 self.parse_or(self.src)
-            }
-            '<' => {
-                 self.parse_lesser(self.src)
-            }
-            '>' => {
-                 self.parse_greater(self.src)
-            }
             ';' => {
                 let token = Token {
                     value: TokenType::LineTerm,
@@ -325,9 +314,7 @@ impl<'a> Lexer<'a> {
                 };
                 Ok(token)
             }
-            ch => {
-                self.handle_bad_read("Unknown character", ch)
-            }
+            ch => self.handle_bad_read("Unknown character", ch),
         }
     }
 

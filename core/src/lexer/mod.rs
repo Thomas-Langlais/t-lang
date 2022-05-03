@@ -1,5 +1,9 @@
 use std::fmt::{self, Result as FormatResult};
+use std::iter::Peekable;
 
+use std::io;
+
+mod reader;
 mod rules;
 mod strings;
 
@@ -50,7 +54,11 @@ pub enum TokenType {
     Int(i64),
     Float(f64),
     LineTerm,
+    // These two variants signal that something went wrong
+    // and the parser should handle them with care
     EOF,
+    BadRead(&'static str, char),
+    BadParse(&'static str, Source),
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
@@ -68,27 +76,6 @@ impl Source {
         Source {
             start: pos,
             end: pos,
-        }
-    }
-
-    pub fn new_unhandled(start: Position, end: Position) -> Self {
-        Source {
-            start,
-            end: {
-                if start.line != end.line {
-                    Position {
-                        index: end.index - 1,
-                        line: start.line,
-                        column: end.index - 1 - start.index + start.column,
-                    }
-                } else {
-                    Position {
-                        index: end.index - 1,
-                        line: end.line,
-                        column: end.column - 1,
-                    }
-                }
-            },
         }
     }
 }
@@ -113,50 +100,80 @@ impl Position {
     }
 }
 
-#[derive(Clone)]
-pub struct LexerError {
-    pub name: String,
-    pub details: String,
-    pub source: String,
-    pub position: Position,
+// #[derive(Clone)]
+// pub struct LexerError {
+//     pub name: &'static str,
+//     pub details: &'static str,
+//     pub source: String,
+//     pub position: Position,
+// }
+
+// impl fmt::Display for LexerError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> FormatResult {
+//         let line_header = format!("line {line}: ", line = self.position.line);
+
+//         let underline = (1..self.position.column + line_header.len())
+//             .map(|_| ' ')
+//             .chain((0..1).map(|_| '^'))
+//             .collect::<String>();
+
+//         let source = self
+//             .source
+//             .lines()
+//             .enumerate()
+//             .skip_while(|(i, _)| i + 1 != self.position.line)
+//             .map(|(_, line)| line)
+//             .next()
+//             .unwrap();
+
+//         write!(
+//             f,
+//             "{name} - {details}\n\
+//             {line_header}{source}\n\
+//             {underline}",
+//             name = self.name,
+//             details = self.details
+//         )
+//     }
+// }
+
+// impl LexerError {
+//     pub fn new(name: &str, details: String, position: Position, source: String) -> LexerError {
+//         LexerError {
+//             name: name.to_string(),
+//             details,
+//             source,
+//             position,
+//         }
+//     }
+// }
+
+trait CharOps {
+    fn is_separator(&self) -> bool;
+
+    fn is_space(&self) -> bool;
+
+    fn is_word(&self) -> bool;
 }
 
-impl fmt::Display for LexerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> FormatResult {
-        let line_header = format!("line {line}: ", line = self.position.line);
-
-        let underline = (1..self.position.column + line_header.len())
-            .map(|_| ' ')
-            .chain((0..1).map(|_| '^'))
-            .collect::<String>();
-
-        let source = self
-            .source
-            .lines()
-            .enumerate()
-            .skip_while(|(i, _)| i + 1 != self.position.line)
-            .map(|(_, line)| line)
-            .next()
-            .unwrap();
-
-        write!(
-            f,
-            "{name} - {details}\n\
-            {line_header}{source}\n\
-            {underline}",
-            name = self.name,
-            details = self.details
-        )
+impl CharOps for char {
+    fn is_separator(&self) -> bool {
+        match *self {
+            '(' | ')' | '=' | '<' | '>' | ';' | '+' | '-' | '*' | '/' => {
+                true
+            }
+            ch => ch.is_space(),
+        }
     }
-}
 
-impl LexerError {
-    pub fn new(name: &str, details: String, position: Position, source: String) -> LexerError {
-        LexerError {
-            name: name.to_string(),
-            details,
-            source,
-            position,
+    fn is_space(&self) -> bool {
+        matches!(*self, '\n' | ' ' | '\t' | '\r')
+    }
+
+    fn is_word(&self) -> bool {
+        match *self {
+            '_' => true,
+            ch => ch.is_alphanumeric(),
         }
     }
 }
@@ -164,141 +181,160 @@ impl LexerError {
 /* lifetimes are important here because we need to define
 that the scope of the readable is where the methods are being called. */
 pub struct Lexer<'a> {
-    buffer: &'a [u8],
-    pos: usize,
-    byte: Option<&'a u8>,
+    input: Peekable<reader::CharReader<'a>>,
+    reading: bool,
+    read_buffer: Vec<char>,
     src: Position,
 }
 
-impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<Token, LexerError>;
-
-    fn next(&mut self) -> Option<Result<Token, LexerError>> {
-        // return the token generated from the loop
-        // loop and return the next token we make
-        return loop {
-            // check the contents of the context
-            match self.byte {
-                Some(b'a'..=b'z') | Some(b'A'..=b'Z') => {
-                    break self.parse_identifier(self.src);
-                }
-                Some(b'0'..=b'9') => {
-                    // implement here.
-                    break self.parse_number(self.src);
-                }
-                Some(op @ (b'+' | b'*' | b'/')) => {
-                    // create the token
-                    let token = Token {
-                        value: TokenType::Operation(OperationTokenType::Arithmetic(*op as char)),
-                        source: Source::new_single(self.src),
-                    };
-                    // advance the iterator context to the next char
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(b'-') => break self.parse_minus(self.src),
-                Some(b'(') => {
-                    // create the token
-                    let token = Token {
-                        value: TokenType::LParen('('),
-                        source: Source::new_single(self.src),
-                    };
-                    // advance the iterator context to the next char
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(b')') => {
-                    // create the token
-                    let token = Token {
-                        value: TokenType::RParen(')'),
-                        source: Source::new_single(self.src),
-                    };
-                    // advance the iterator context to the next char
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(b'=') => {
-                    break self.parse_equal(self.src);
-                }
-                Some(b'!') => {
-                    break self.parse_not(self.src);
-                }
-                Some(b'&') => {
-                    break self.parse_and(self.src);
-                }
-                Some(b'|') => {
-                    break self.parse_or(self.src);
-                }
-                Some(b'<') => {
-                    break self.parse_lesser(self.src);
-                }
-                Some(b'>') => {
-                    break self.parse_greater(self.src);
-                }
-                // this is empty as we don't need to do any parsing on white spaces or tabs
-                Some(b' ') | Some(b'\t') | Some(b'\n') => {
-                    // advance the iterator context to the next char
-                    self.advance();
-                }
-                Some(b';') => {
-                    let token = Token {
-                        value: TokenType::LineTerm,
-                        source: Source::new_single(self.src),
-                    };
-                    self.advance();
-                    break Some(Ok(token));
-                }
-                Some(byte) => {
-                    break Some(Err(LexerError::new(
-                        "Illegal char error",
-                        (*byte as char).to_string(),
-                        self.src,
-                        self.buffer.iter().map(|b| *b as char).collect(),
-                    )));
-                }
-                _ => break None,
-            }
-        };
+impl<'a> From<&'a mut dyn io::Read> for Lexer<'a> {
+    fn from(reader: &'a mut dyn io::Read) -> Self {
+        Lexer {
+            input: reader::CharReader::from(reader).peekable(),
+            reading: false,
+            read_buffer: vec![],
+            src: Position {
+                index: 0,
+                line: 1,
+                column: 1,
+            },
+        }
     }
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(buf: &'a [u8]) -> Lexer<'a> {
-        Lexer {
-            buffer: buf,
-            pos: 0,
-            byte: buf.get(0),
-            src: Position {
-                index: 0,
-                column: 1,
-                line: 1,
+    fn handle_bad_read(&mut self, msg: &'static str, ch: char) -> io::Result<Token> {
+        let pos = self.src;
+        loop {
+            match self.input.peek() {
+                Some(Ok(ch)) if ch.is_separator() => break,
+                Some(Ok(_)) => {
+                    self.advance().unwrap()?;
+                }
+                Some(Err(_)) => return Err(self.advance().unwrap().unwrap_err()),
+                None => break,
+            }
+        }
+        Ok(Token {
+            value: TokenType::BadRead(msg, ch),
+            source: Source::new_single(pos),
+        })
+    }
+    
+    fn handle_bad_peek(&mut self, msg: &'static str) -> io::Result<Token> {
+        let ch = self.advance().unwrap().unwrap();
+        self.handle_bad_read(msg, ch)
+    }
+
+    fn advance_to_next(&mut self) -> io::Result<Option<char>> {
+        loop {
+            match self.advance() {
+                Some(Ok(ch)) if ch.is_space() => (),
+                Some(Ok(ch)) => return Ok(Some(ch)),
+                Some(Err(e)) => return Err(e),
+                None => return Ok(None),
+            }
+        }
+    }
+
+    fn advance(&mut self) -> Option<io::Result<char>> {
+        let reading = self.reading;
+        match self.input.peek() {
+            Some(Ok(_)) => {
+                let c = self.input.next().unwrap().unwrap();
+                if reading {
+                    self.src.advance(c);
+                } else {
+                    self.reading = true;
+                }
+                self.read_buffer.push(c);
+                Some(Ok(c))
+            }
+            Some(Err(_)) => {
+                let e = self.input.next().unwrap().unwrap_err();
+                Some(Err(e))
             },
+            None => None,
         }
     }
 
-    pub fn parse_tokens(&mut self) -> Result<Vec<Token>, LexerError> {
-        let mut tokens = vec![];
-
-        while let Some(result_token) = self.next() {
-            tokens.push(result_token?);
+    pub fn read(&mut self) -> io::Result<Token> {
+        let result = self.advance_to_next()?;
+        if result.is_none() {
+            return Ok(Token {
+                value: TokenType::EOF,
+                source: Source::new_single(self.src)
+            })
         }
+        let ch = result.unwrap();
 
-        tokens.push(Token {
-            value: TokenType::EOF,
-            source: Source::new_single(self.src),
-        });
-
-        Ok(tokens)
+        // check the contents of the context
+        match ch {
+            'a'..='z' | 'A'..='Z' => {
+                self.parse_identifier(ch, self.src)
+            }
+            '0'..='9' => {
+                self.parse_number(ch, self.src)
+            }
+            op @ ('+' | '*' | '/') => {
+                // create the token
+                let token = Token {
+                    value: TokenType::Operation(OperationTokenType::Arithmetic(op)),
+                    source: Source::new_single(self.src),
+                };
+                Ok(token)
+            }
+            '-' => self.parse_minus(self.src),
+            '(' => {
+                let token = Token {
+                    value: TokenType::LParen('('),
+                    source: Source::new_single(self.src),
+                };
+                Ok(token)
+            }
+            ')' => {
+                // create the token
+                let token = Token {
+                    value: TokenType::RParen(')'),
+                    source: Source::new_single(self.src),
+                };
+                Ok(token)
+            }
+            '=' => {
+                self.parse_equal(self.src)
+            }
+            '!' => {
+                self.parse_not(self.src)
+            }
+            '&' => {
+                self.parse_and(self.src)
+            }
+            '|' => {
+                 self.parse_or(self.src)
+            }
+            '<' => {
+                 self.parse_lesser(self.src)
+            }
+            '>' => {
+                 self.parse_greater(self.src)
+            }
+            ';' => {
+                let token = Token {
+                    value: TokenType::LineTerm,
+                    source: Source::new_single(self.src),
+                };
+                Ok(token)
+            }
+            ch => {
+                self.handle_bad_read("Unknown character", ch)
+            }
+        }
     }
 
-    // update the lexer by setting the byte and
-    // new position
-    fn advance(&mut self) {
-        self.pos += 1;
-        self.byte = self.buffer.get(self.pos);
-
-        if let Some(&b) = self.byte {
-            self.src.advance(b as char)
-        }
-    }
+    // fn peekable(self) ->
 }
+
+// pub struct PeekableLexer<'a> {
+//     lexer: Lexer<'a>,
+//     peeked:
+// }

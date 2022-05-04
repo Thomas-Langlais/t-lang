@@ -93,78 +93,7 @@ impl<'a> Lexer<'a> {
                 }),
             }
         }
-
-        // // starting number
-        // let mut number = 0i64;
-
-        // loop {
-        //     // go to the next byte
-        //     match self.byte {
-        //         Some(b @ b'0'..=b'9') => {
-        //             // update the number
-        //             number = (number * 10) + i64::from(b - b'0');
-        //             // get the next byte
-        //             self.advance();
-        //         }
-        //         Some(b'.') => {
-        //             // get the next byte
-        //             self.advance();
-        //             // return the float option
-        //             return self.parse_float(number, starting_position);
-        //         }
-        //         Some(_) => {
-        //             let token = Token {
-        //                 value: TokenType::Int(number),
-        //                 source: Source::new_unhandled(starting_position, self.src),
-        //             };
-        //             // return the token
-        //             return Some(Ok(token));
-        //         }
-        //         None => {
-        //             return None;
-        //         }
-        //     }
-        // }
     }
-
-    // // parse the number into a float token
-    // pub fn parse_float(
-    //     &mut self,
-    //     first: char,
-    //     number: i64,
-    //     starting_position: Position,
-    // ) -> io::Result<Token> {
-    //     // the decimal point
-    //     let mut decimal_point: f64 = 0.0;
-    //     // starting point for the power, it updates t o10 to react to the first decimal point digit
-    //     let mut power: f64 = 1.0;
-
-    //     loop {
-    //         match self.byte {
-    //             Some(b @ b'0'..=b'9') => {
-    //                 // update the power
-    //                 power *= 10_f64;
-    //                 self.advance();
-    //                 // update the number
-    //                 decimal_point += f64::from(b - b'0') / power;
-    //             }
-    //             Some(_) => {
-    //                 let float = number as f64 + decimal_point;
-    //                 let token = Token {
-    //                     // this is a lossy conversion and there will be no stoping from capturing
-    //                     // this error at runtime atm. TODO
-    //                     value: TokenType::Float(float),
-    //                     source: Source::new_unhandled(starting_position, self.src),
-    //                 };
-    //                 // return the token
-    //                 return Some(Ok(token));
-    //             }
-    //             None => {
-    //                 return None;
-    //             }
-    //         }
-    //     }
-    // }
 
     pub fn parse_minus(&mut self, start: Position) -> io::Result<Token> {
         match self.input.peek() {

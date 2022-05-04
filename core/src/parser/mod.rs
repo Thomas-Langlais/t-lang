@@ -1,6 +1,8 @@
+use std::cell::{RefCell};
 use std::fmt::{Debug, Display, Formatter, Result as FormatResult};
 use std::io;
 use std::iter::Peekable;
+use std::rc::Rc;
 
 // use crate::interpreter::{ExecutionContext, Interpret, InterpreterResult};
 use crate::lexer::{Lexer, Source, Token, TokenType};
@@ -165,30 +167,21 @@ pub enum SyntaxNode {
     Term(TermNode),
 }
 
-pub struct AbstractSyntaxTree {
-    inner: SyntaxNode,
-}
-
-impl Debug for AbstractSyntaxTree {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
-        write!(f, "{:#?}", self.inner)
-    }
-}
-
-// impl<'a> Interpret<'a> for AbstractSyntaxTree {
-//     fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
-//         self.inner.interpret(context)
-//     }
-// }
-
 pub struct Parser<'a> {
     lexer: Peekable<Lexer<'a>>,
+    buf: Rc<RefCell<Vec<char>>>,
 }
 
 impl<'a> From<&'a mut dyn io::Read> for Parser<'a> {
     fn from(reader: &'a mut dyn io::Read) -> Self {
+        let buf = Rc::new(RefCell::new(vec![]));
+        
+        let mut lexer = Lexer::from(reader);
+        lexer.read_buffer = Rc::clone(&buf);
+        
         Parser {
-            lexer: Lexer::from(reader).peekable(),
+            lexer: lexer.peekable(),
+            buf,
         }
     }
 }
@@ -202,36 +195,6 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 impl<'a> Parser<'a> {
-    // pub fn new(tokens: Vec<Token>, source: &'a [u8]) -> Parser<'a> {
-    //     let mut parser = Parser {
-    //         source,
-    //         index: 0,
-    //         tokens,
-    //         current_token: None,
-    //     };
-    //     parser.update_token();
-
-    //     parser
-    // }
-
-    // fn advance(&mut self) {
-    //     self.index += 1;
-    //     self.update_token();
-    // }
-
-    // fn reverse(&mut self, amount: usize) {
-    //     self.index -= amount;
-    //     self.update_token();
-    // }
-
-    // fn update_token(&mut self) {
-    //     if (0..self.tokens.len()).contains(&self.index) {
-    //         self.current_token = Some(self.tokens[self.index].clone())
-    //     } else {
-    //         self.current_token = None
-    //     }
-    // }
-
     /**
      * helper functions for parsing grammar nodes into the stacks
      */
@@ -249,9 +212,9 @@ impl<'a> Parser<'a> {
 
             let op_token = self.lexer.next().unwrap().unwrap();
             if let TokenType::Bad(msg, source) = op_token.value {
-                return Err(Error::Bad(msg, source))
+                return Err(Error::Bad(msg, source));
             }
-            
+
             let right = func(self)?;
 
             left = SyntaxNode::Term(TermNode {
@@ -262,6 +225,21 @@ impl<'a> Parser<'a> {
         }
 
         Ok(left)
+    }
+
+    fn skip_passed(&mut self, token_type: TokenType) -> Result<()> {
+        loop {
+            match self.lexer.peek() {
+                Some(Err(_)) => break Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
+                Some(Ok(Token { value, .. })) if value == &token_type => {
+                    self.lexer.next();
+                    break Ok(());
+                }
+                _ => {
+                    self.lexer.next();
+                }
+            }
+        }
     }
 
     // TODO: refactor the grammar to use this utility func
@@ -280,12 +258,6 @@ impl<'a> Parser<'a> {
                 error,
                 self.lexer.peek().as_ref().unwrap().as_ref().unwrap().source,
             )),
-            //     IllegalSyntaxError::new_invalid_syntax(
-            //         error,
-            //         self.current_token.as_ref().unwrap().source,
-            //         self.source,
-            //     ),
-            // ))),
         }
     }
 
@@ -305,13 +277,6 @@ impl<'a> Parser<'a> {
                 error,
                 self.lexer.peek().as_ref().unwrap().as_ref().unwrap().source,
             )),
-            // _ => Err(context.failure(ParseError::SyntaxError(
-            //     IllegalSyntaxError::new_invalid_syntax(
-            //         error,
-            //         self.current_token.as_ref().unwrap().source,
-            //         self.source,
-            //     ),
-            // ))),
         }
     }
 
@@ -330,5 +295,9 @@ impl<'a> Parser<'a> {
         };
 
         res
+    }
+
+    pub fn source(&self) -> Vec<char> {
+        unsafe { (&*self.buf.as_ptr()).clone() }
     }
 }

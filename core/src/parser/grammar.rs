@@ -1,7 +1,7 @@
 use crate::lexer::{CompType, LogicType, OperationTokenType, Token, TokenType};
 use crate::parser::{
-    ConditionNode, FactorNode, IfNode, Parser, Result,
-    StatementListNode, StatementNode, SyntaxNode, UnaryNode, VariableNode,
+    ConditionNode, FactorNode, IfNode, Parser, Result, StatementListNode, StatementNode,
+    SyntaxNode, UnaryNode, VariableNode,
 };
 
 use super::{BreakNode, ContinueNode, Error, ForNode, WhileNode};
@@ -54,9 +54,7 @@ impl<'a> Parser<'a> {
             Some(Ok(Token {
                 value: TokenType::Bad(msg, source),
                 ..
-            })) => {
-                Err(Error::Bad(*msg, *source))
-            }
+            })) => Err(Error::Bad(*msg, *source)),
             Some(Ok(Token { source, .. })) => Err(Error::Bad(
                 "Expected an number, variable, number sign (+/-), or if statement",
                 *source,
@@ -107,10 +105,13 @@ impl<'a> Parser<'a> {
         let statement = self.statement()?;
         let mut statements = vec![statement];
 
-        while !matches!(self.lexer.peek(), Some(Ok(Token {
-            value: TokenType::RBlock,
-            ..
-        }))) {
+        while !matches!(
+            self.lexer.peek(),
+            Some(Ok(Token {
+                value: TokenType::RBlock,
+                ..
+            }))
+        ) {
             statements.push(self.statement()?);
         }
 
@@ -207,13 +208,10 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// while_expr = KW:WHILE LParen expr RParen block
+    /// while_expr = KW:WHILE expr block
     fn while_stmt(&mut self) -> Result<SyntaxNode> {
         self.lexer.next();
-        self.expect_and_consume(&TokenType::LParen('('), "expected (")?;
         let condition = Box::new((self.expr())?);
-        self.expect_and_consume(&TokenType::RParen(')'), "expected )")?;
-
         let block =
             Box::new(self.expect_and_parse(|p| p.block(), &TokenType::LBlock, "expected |-")?);
 
@@ -268,12 +266,18 @@ impl<'a> Parser<'a> {
                 ..
             })) => self.lexer.next().unwrap().unwrap(),
             Some(Err(_)) => return Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
-            _ => {
-                return Err(Error::Bad(
-                    "Expected a variable name",
-                    self.lexer.peek().as_ref().unwrap().as_ref().unwrap().source,
+            Some(Ok(Token {
+                value: TokenType::Bad(msg, source),
+                ..
+            })) => {
+                let err = Err(Error::Bad(
+                    *msg,
+                    *source,
                 ));
+                self.skip_passed(TokenType::LineTerm)?;
+                return err;
             }
+            _ => panic!("there should always be a token in the iterator")
         };
 
         match self.lexer.peek() {
@@ -339,21 +343,33 @@ impl<'a> Parser<'a> {
                 value: TokenType::Keyword("if"),
                 ..
             })) => {
-                let inner = Box::new((self.if_stmt())?);
+                let result = self.if_stmt();
+                if result.is_err() {
+                    self.skip_passed(TokenType::RBlock)?;
+                }
+                let inner = Box::new(result?);
                 Ok(SyntaxNode::Statement(StatementNode { inner }))
             }
             Some(Ok(Token {
                 value: TokenType::Keyword("for"),
                 ..
             })) => {
-                let inner = Box::new((self.for_stmt())?);
+                let result = self.for_stmt();
+                if result.is_err() {
+                    self.skip_passed(TokenType::RBlock)?;
+                }
+                let inner = Box::new(result?);
                 Ok(SyntaxNode::Statement(StatementNode { inner }))
             }
             Some(Ok(Token {
                 value: TokenType::Keyword("while"),
                 ..
             })) => {
-                let inner = Box::new((self.while_stmt())?);
+                let result = self.while_stmt();
+                if result.is_err() {
+                    self.skip_passed(TokenType::RBlock)?;
+                }
+                let inner = Box::new(result?);
                 Ok(SyntaxNode::Statement(StatementNode { inner }))
             }
             Some(Ok(Token {

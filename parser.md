@@ -23,7 +23,7 @@ for_stmt   = KW:FOR LParen (decl_expr)? LINETERM
                (decl_expr)?
              RParen block
 
-while_stmt = KW:WHILE LParen expr RParen block
+while_stmt = KW:WHILE expr block
 
 block      = LBlock statement+ RBlock
 

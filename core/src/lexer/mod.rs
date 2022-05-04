@@ -1,6 +1,7 @@
+use std::cell::RefCell;
 use std::iter::Peekable;
-
 use std::io;
+use std::rc::Rc;
 
 mod reader;
 mod rules;
@@ -98,54 +99,6 @@ impl Position {
     }
 }
 
-// #[derive(Clone)]
-// pub struct LexerError {
-//     pub name: &'static str,
-//     pub details: &'static str,
-//     pub source: String,
-//     pub position: Position,
-// }
-
-// impl fmt::Display for LexerError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> FormatResult {
-//         let line_header = format!("line {line}: ", line = self.position.line);
-
-//         let underline = (1..self.position.column + line_header.len())
-//             .map(|_| ' ')
-//             .chain((0..1).map(|_| '^'))
-//             .collect::<String>();
-
-//         let source = self
-//             .source
-//             .lines()
-//             .enumerate()
-//             .skip_while(|(i, _)| i + 1 != self.position.line)
-//             .map(|(_, line)| line)
-//             .next()
-//             .unwrap();
-
-//         write!(
-//             f,
-//             "{name} - {details}\n\
-//             {line_header}{source}\n\
-//             {underline}",
-//             name = self.name,
-//             details = self.details
-//         )
-//     }
-// }
-
-// impl LexerError {
-//     pub fn new(name: &str, details: String, position: Position, source: String) -> LexerError {
-//         LexerError {
-//             name: name.to_string(),
-//             details,
-//             source,
-//             position,
-//         }
-//     }
-// }
-
 trait CharOps {
     fn is_separator(&self) -> bool;
 
@@ -176,26 +129,11 @@ impl CharOps for char {
 
 /* lifetimes are important here because we need to define
 that the scope of the readable is where the methods are being called. */
-pub struct Lexer<'a> {
-    input: Peekable<reader::CharReader<'a>>,
-    reading: bool,
-    read_buffer: Vec<char>,
-    src: Position,
-}
-
-impl<'a> From<&'a mut dyn io::Read> for Lexer<'a> {
-    fn from(reader: &'a mut dyn io::Read) -> Self {
-        Lexer {
-            input: reader::CharReader::from(reader).peekable(),
-            reading: false,
-            read_buffer: vec![],
-            src: Position {
-                index: 0,
-                line: 1,
-                column: 1,
-            },
-        }
-    }
+pub(crate) struct Lexer<'a> {
+    pub (crate) input: Peekable<reader::CharReader<'a>>,
+    pub (crate) reading: bool,
+    pub (crate) read_buffer: Rc<RefCell<Vec<char>>>,
+    pub (crate) src: Position,
 }
 
 impl<'a> Iterator for Lexer<'a> {
@@ -203,6 +141,21 @@ impl<'a> Iterator for Lexer<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         Some(self.read())
+    }
+}
+
+impl<'a> From<&'a mut dyn io::Read> for Lexer<'a> {
+    fn from(reader: &'a mut dyn io::Read) -> Self {
+        Lexer {
+            input: reader::CharReader::from(reader).peekable(),
+            reading: false,
+            read_buffer: Rc::new(RefCell::new(vec![])),
+            src: Position {
+                index: 0,
+                line: 1,
+                column: 1,
+            },
+        }
     }
 }
 
@@ -250,7 +203,7 @@ impl<'a> Lexer<'a> {
                 } else {
                     self.reading = true;
                 }
-                self.read_buffer.push(c);
+                self.read_buffer.borrow_mut().push(c);
                 Some(Ok(c))
             }
             Some(Err(_)) => {
@@ -261,7 +214,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn read(&mut self) -> io::Result<Token> {
+    pub (crate) fn read(&mut self) -> io::Result<Token> {
         let result = self.advance_to_next()?;
         if result.is_none() {
             return Ok(Token {
@@ -315,11 +268,4 @@ impl<'a> Lexer<'a> {
             _ => self.handle_bad_read("Unknown character", self.src),
         }
     }
-
-    // fn peekable(self) ->
 }
-
-// pub struct PeekableLexer<'a> {
-//     lexer: Lexer<'a>,
-//     peeked:
-// }

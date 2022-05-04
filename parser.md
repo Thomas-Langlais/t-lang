@@ -10,25 +10,25 @@ This is used to restrict what is allowed to be used for programming purposes.
 statement  = for_stmt
            = while_stmt
            = if_stmt
+           = decl_stmt LINETERM
            = KW:CONTINUE LINETERM
            = KW:BREAK LINETERM
-           = expression LINETERM
+           = expr LINETERM
 
 if_stmt    = KW:IF expr block
                 (KW:ELSE KW:IF expr block)*
               | (KW:ELSE block)?
 
-for_stmt   = KW:FOR LParen (decl_expr)? LINETERM
+for_stmt   = KW:FOR LParen (decl_stmt)? LINETERM
                (expr)? LINETERM
-               (decl_expr)?
+               (decl_stmt)?
              RParen block
 
 while_stmt = KW:WHILE expr block
 
-block      = LBlock statement+ RBlock
+decl_stmt  = KW:LET IDENTIFIER EQ expr
 
-expression = decl_expr 
-           = expr
+block      = LBlock statement+ RBlock
 
 expr       = comp_expr ((AND|OR) comp_expr)*
 
@@ -36,8 +36,6 @@ comp_expr  = NOT comp_expr
            = arith_expr ((EE|NE|LT|GT|LTE|GTE) arith_expr)*
 
 arith_expr = term (PLUS|MINUS term)*
-
-decl_expr  = KW:LET IDENTIFIER EQ expr
 
 term       = factor (MUL|DIV factor)*
 

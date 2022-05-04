@@ -8,7 +8,7 @@ use super::{BreakNode, ContinueNode, Error, ForNode, WhileNode};
 
 impl<'a> Parser<'a> {
     /// atom = INT|FLOAT|IDENTIFIER
-    ///      = LParen expression RParen
+    ///      = LParen expr RParen
     fn atom(&mut self) -> Result<SyntaxNode> {
         match self.lexer.peek() {
             Some(Ok(Token {
@@ -34,7 +34,7 @@ impl<'a> Parser<'a> {
                 ..
             })) => {
                 self.lexer.next().unwrap().unwrap();
-                let expression = self.expression()?;
+                let expression = self.expr()?;
 
                 match self.lexer.peek() {
                     Some(Ok(Token {
@@ -162,9 +162,9 @@ impl<'a> Parser<'a> {
 
     /// for_stmt = KW:FOR
     ///                 LParen
-    ///                     (decl_expr)? LINETERM
+    ///                     (decl_stmt)? LINETERM
     ///                     (expr)? LINETERM
-    ///                     (decl_expr)?
+    ///                     (decl_stmt)?
     ///                 RParen
     ///            block
     fn for_stmt(&mut self) -> Result<SyntaxNode> {
@@ -174,7 +174,7 @@ impl<'a> Parser<'a> {
             Some(Ok(Token {
                 value: TokenType::Keyword("let"),
                 ..
-            })) => Some(Box::new(self.decl_expr()?)),
+            })) => Some(Box::new(self.decl_stmt()?)),
             _ => None,
         };
         self.expect_and_consume(&TokenType::LineTerm, "expected ;")?;
@@ -192,7 +192,7 @@ impl<'a> Parser<'a> {
             Some(Ok(Token {
                 value: TokenType::Keyword("let"),
                 ..
-            })) => Some(Box::new(self.decl_expr()?)),
+            })) => Some(Box::new(self.decl_stmt()?)),
             _ => None,
         };
         self.expect_and_consume(&TokenType::RParen(')'), "expected )")?;
@@ -257,8 +257,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// decl_expr = KW:LET IDENTIFIER EQ expr
-    fn decl_expr(&mut self) -> Result<SyntaxNode> {
+    /// decl_stmt = KW:LET IDENTIFIER EQ expr
+    fn decl_stmt(&mut self) -> Result<SyntaxNode> {
         self.lexer.next().unwrap().unwrap();
         let identifier_token = match self.lexer.peek() {
             Some(Ok(Token {
@@ -269,15 +269,8 @@ impl<'a> Parser<'a> {
             Some(Ok(Token {
                 value: TokenType::Bad(msg, source),
                 ..
-            })) => {
-                let err = Err(Error::Bad(
-                    *msg,
-                    *source,
-                ));
-                self.skip_passed(TokenType::LineTerm)?;
-                return err;
-            }
-            _ => panic!("there should always be a token in the iterator")
+            })) => return Err(Error::Bad(*msg, *source)),
+            _ => panic!("there should always be a token in the iterator"),
         };
 
         match self.lexer.peek() {
@@ -317,26 +310,13 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// expression = decl_expr
-    ///            = expr
-    fn expression(&mut self) -> Result<SyntaxNode> {
-        if let Some(Ok(Token {
-            value: TokenType::Keyword("let"),
-            ..
-        })) = self.lexer.peek()
-        {
-            self.decl_expr()
-        } else {
-            self.expr()
-        }
-    }
-
     /// statement = if_stmt
     ///           = for_stmt
     ///           = while_stmt
+    ///           = decl_stmt LINETERM
     ///           = KW:CONTINUE LINETERM
     ///           = KW:BREAK LINETERM
-    ///           = expression LINETERM
+    ///           = expr LINETERM
     pub fn statement(&mut self) -> Result<SyntaxNode> {
         match self.lexer.peek() {
             Some(Ok(Token {
@@ -373,6 +353,19 @@ impl<'a> Parser<'a> {
                 Ok(SyntaxNode::Statement(StatementNode { inner }))
             }
             Some(Ok(Token {
+                value: TokenType::Keyword("let"),
+                ..
+            })) => {
+                let result = self.decl_stmt();
+                if result.is_err() {
+                    self.skip_passed(TokenType::LineTerm)?;
+                } else {
+                    self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
+                }
+                let inner = Box::new(result?);
+                Ok(SyntaxNode::Statement(StatementNode { inner }))
+            }
+            Some(Ok(Token {
                 value: TokenType::Keyword("brk"),
                 ..
             })) => {
@@ -389,8 +382,13 @@ impl<'a> Parser<'a> {
                 Ok(SyntaxNode::Continue(ContinueNode(token)))
             }
             Some(Ok(_)) => {
-                let inner = Box::new(self.expression()?);
-                self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
+                let result = self.expr();
+                if result.is_err() {
+                    self.skip_passed(TokenType::LineTerm)?;
+                } else {
+                    self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
+                }
+                let inner = Box::new(result?);
                 Ok(SyntaxNode::Statement(StatementNode { inner }))
             }
             Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),

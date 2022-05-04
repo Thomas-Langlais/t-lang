@@ -90,17 +90,20 @@ pub struct VariableNode {
     pub identifier_token: Token,
     pub expression: Option<Box<SyntaxNode>>,
     pub assign: bool,
+    pub source: Source,
 }
 
 #[derive(Debug)]
 pub struct FactorNode {
     pub token: Token,
+    pub source: Source,
 }
 
 #[derive(Debug)]
 pub struct UnaryNode {
     pub op_token: Token,
     pub node: Box<SyntaxNode>,
+    pub source: Source,
 }
 
 #[derive(Debug)]
@@ -108,28 +111,33 @@ pub struct TermNode {
     pub op_token: Token,
     pub left_node: Box<SyntaxNode>,
     pub right_node: Box<SyntaxNode>,
+    pub source: Source,
 }
 
 #[derive(Debug)]
 pub struct ConditionNode {
     pub condition: Box<SyntaxNode>,
     pub statements: Box<SyntaxNode>,
+    pub source: Source,
 }
 
 #[derive(Debug)]
 pub struct IfNode {
     pub if_nodes: Vec<ConditionNode>,
     pub else_node: Option<Box<SyntaxNode>>,
+    pub source: Source,
 }
 
 #[derive(Debug)]
 pub struct StatementNode {
     pub inner: Box<SyntaxNode>,
+    pub source: Source,
 }
 
 #[derive(Debug)]
 pub struct StatementListNode {
     pub statements: Vec<SyntaxNode>,
+    pub source: Source,
 }
 
 #[derive(Debug)]
@@ -138,19 +146,21 @@ pub struct ForNode {
     pub condition: Option<Box<SyntaxNode>>,
     pub increment: Option<Box<SyntaxNode>>,
     pub block: Box<SyntaxNode>,
+    pub source: Source,
 }
 
 #[derive(Debug)]
 pub struct WhileNode {
     pub condition: Box<SyntaxNode>,
     pub block: Box<SyntaxNode>,
+    pub source: Source,
 }
 
 #[derive(Debug)]
-pub struct ContinueNode(Token);
+pub struct ContinueNode(Token, Source);
 
 #[derive(Debug)]
-pub struct BreakNode(Token);
+pub struct BreakNode(Token, Source);
 
 #[derive(Debug)]
 pub enum SyntaxNode {
@@ -165,6 +175,22 @@ pub enum SyntaxNode {
     Factor(FactorNode),
     Unary(UnaryNode),
     Term(TermNode),
+}
+
+fn get_source(node: &SyntaxNode) -> Source {
+    match node {
+        SyntaxNode::If(node) => node.source,
+        SyntaxNode::Statements(node) => node.source,
+        SyntaxNode::Statement(node) => node.source,
+        SyntaxNode::For(node) => node.source,
+        SyntaxNode::While(node) => node.source,
+        SyntaxNode::Continue(ContinueNode(_, source)) => *source,
+        SyntaxNode::Break(BreakNode(_, source)) => *source,
+        SyntaxNode::Variable(node) => node.source,
+        SyntaxNode::Factor(node) => node.source,
+        SyntaxNode::Unary(node) => node.source,
+        SyntaxNode::Term(node) => node.source,
+    }
 }
 
 pub struct Parser<'a> {
@@ -217,10 +243,15 @@ impl<'a> Parser<'a> {
 
             let right = func(self)?;
 
+            let start = get_source(&left).start;
+            let end = get_source(&right).end;
+            let source = Source::new(start, end);
+
             left = SyntaxNode::Term(TermNode {
                 left_node: Box::new(left),
                 right_node: Box::new(right),
                 op_token,
+                source,
             });
         }
 
@@ -247,11 +278,10 @@ impl<'a> Parser<'a> {
         &mut self,
         token_type: &'static TokenType,
         error: &'static str,
-    ) -> Result<()> {
+    ) -> Result<Token> {
         match self.lexer.peek() {
             Some(Ok(Token { value, .. })) if value == token_type => {
-                self.lexer.next();
-                Ok(())
+                Ok(self.lexer.next().unwrap().unwrap())
             }
             Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
             _ => Err(Error::Bad(

@@ -1,10 +1,10 @@
-use crate::lexer::{CompType, LogicType, OperationTokenType, Token, TokenType};
+use crate::lexer::{CompType, LogicType, OperationTokenType, Source, Token, TokenType};
 use crate::parser::{
     ConditionNode, FactorNode, IfNode, Parser, Result, StatementListNode, StatementNode,
     SyntaxNode, UnaryNode, VariableNode,
 };
 
-use super::{BreakNode, ContinueNode, Error, ForNode, WhileNode};
+use super::{get_source, BreakNode, ContinueNode, Error, ForNode, WhileNode};
 
 impl<'a> Parser<'a> {
     /// atom = INT|FLOAT|IDENTIFIER
@@ -16,17 +16,20 @@ impl<'a> Parser<'a> {
                 ..
             })) => {
                 let token = self.lexer.next().unwrap().unwrap();
-                Ok(SyntaxNode::Factor(FactorNode { token }))
+                let source = token.source;
+                Ok(SyntaxNode::Factor(FactorNode { token, source }))
             }
             Some(Ok(Token {
                 value: TokenType::Identifier(_),
                 ..
             })) => {
                 let identifier_token = self.lexer.next().unwrap().unwrap();
+                let source = identifier_token.source;
                 Ok(SyntaxNode::Variable(VariableNode {
                     identifier_token,
                     expression: None,
                     assign: false,
+                    source,
                 }))
             }
             Some(Ok(Token {
@@ -75,9 +78,12 @@ impl<'a> Parser<'a> {
             })) => {
                 let op_token = self.lexer.next().unwrap().unwrap();
                 let factor = self.factor()?;
+                let source = Source::new(op_token.source.start, get_source(&factor).end);
+
                 Ok(SyntaxNode::Unary(UnaryNode {
                     node: Box::new(factor),
                     op_token,
+                    source,
                 }))
             }
             Some(Ok(_)) => self.atom(),
@@ -99,8 +105,10 @@ impl<'a> Parser<'a> {
 
     /// LBlock statement+ RBlock
     fn block(&mut self) -> Result<SyntaxNode> {
-        self.expect_and_consume(&TokenType::LBlock, "expected |-")?;
-        // let statements = self.statements()?;
+        let start = self
+            .expect_and_consume(&TokenType::LBlock, "expected |-")?
+            .source
+            .start;
 
         let statement = self.statement()?;
         let mut statements = vec![statement];
@@ -115,29 +123,42 @@ impl<'a> Parser<'a> {
             statements.push(self.statement()?);
         }
 
-        self.expect_and_consume(&TokenType::RBlock, "expected -|")?;
-        Ok(SyntaxNode::Statements(StatementListNode { statements }))
+        let end = self
+            .expect_and_consume(&TokenType::RBlock, "expected -|")?
+            .source
+            .end;
+        let source = Source::new(start, end);
+
+        Ok(SyntaxNode::Statements(StatementListNode {
+            statements,
+            source,
+        }))
     }
 
     /// if_stmt = KW:IF expr block
     ///             (KW:ELSE KW:IF expr block)* | (KW:ELSE block)?
     fn if_stmt(&mut self) -> Result<SyntaxNode> {
-        self.expect_and_consume(&TokenType::Keyword("if"), "expected an 'if' keyword token")?;
+        let starting_source = self.lexer.next().unwrap().unwrap().source;
+        let mut source = starting_source;
 
-        let mut node = IfNode {
-            if_nodes: vec![ConditionNode {
-                condition: Box::new(self.expr()?),
-                statements: Box::new(self.block()?),
-            }],
-            else_node: None,
-        };
+        let mut if_nodes = vec![];
+        let mut else_node = None;
+
+        let expr = self.expr()?;
+        let block = self.block()?;
+        source = Source::new(source.start, get_source(&block).end);
+        if_nodes.push(ConditionNode {
+            condition: Box::new(expr),
+            statements: Box::new(block),
+            source,
+        });
 
         while let Some(Ok(Token {
             value: TokenType::Keyword("else"),
             ..
         })) = self.lexer.peek()
         {
-            self.lexer.next();
+            source = self.lexer.next().unwrap().unwrap().source;
 
             if let Some(Ok(Token {
                 value: TokenType::Keyword("if"),
@@ -145,19 +166,29 @@ impl<'a> Parser<'a> {
             })) = self.lexer.peek()
             {
                 self.lexer.next();
-                node.if_nodes.push(ConditionNode {
-                    condition: Box::new(self.expr()?),
-                    statements: Box::new(self.block()?),
-                });
+                let expr = self.expr()?;
+                let block = self.block()?;
+                let source = Source::new(source.start, get_source(&block).end);
 
+                if_nodes.push(ConditionNode {
+                    condition: Box::new(expr),
+                    statements: Box::new(block),
+                    source,
+                });
                 continue;
             } else {
-                node.else_node = Some(Box::new(self.block()?));
+                let block = self.block()?;
+                source = get_source(&block);
+                else_node = Some(Box::new(block));
                 break;
             }
         }
 
-        Ok(SyntaxNode::If(node))
+        Ok(SyntaxNode::If(IfNode {
+            if_nodes,
+            else_node,
+            source: Source::new(starting_source.start, source.end),
+        }))
     }
 
     /// for_stmt = KW:FOR
@@ -168,7 +199,7 @@ impl<'a> Parser<'a> {
     ///                 RParen
     ///            block
     fn for_stmt(&mut self) -> Result<SyntaxNode> {
-        self.lexer.next();
+        let start = self.lexer.next().unwrap().unwrap().source.start;
         self.expect_and_consume(&TokenType::LParen('('), "expected (")?;
         let declaration = match self.lexer.peek() {
             Some(Ok(Token {
@@ -199,23 +230,34 @@ impl<'a> Parser<'a> {
 
         let block =
             Box::new(self.expect_and_parse(|p| p.block(), &TokenType::LBlock, "expected |-")?);
+        let end = get_source(&block).end;
+        let source = Source::new(start, end);
 
         Ok(SyntaxNode::For(ForNode {
             declaration,
             condition,
             increment,
             block,
+            source,
         }))
     }
 
     /// while_expr = KW:WHILE expr block
     fn while_stmt(&mut self) -> Result<SyntaxNode> {
-        self.lexer.next();
+        let start = self.lexer.next().unwrap().unwrap().source.start;
+
         let condition = Box::new((self.expr())?);
         let block =
             Box::new(self.expect_and_parse(|p| p.block(), &TokenType::LBlock, "expected |-")?);
 
-        Ok(SyntaxNode::While(WhileNode { condition, block }))
+        let end = get_source(&block).end;
+        let source = Source::new(start, end);
+
+        Ok(SyntaxNode::While(WhileNode {
+            condition,
+            block,
+            source,
+        }))
     }
 
     /// arith_expr = term (PLUS|MINUS term)*
@@ -240,7 +282,13 @@ impl<'a> Parser<'a> {
         {
             let op_token = self.lexer.next().unwrap().unwrap();
             let node = Box::new(self.comp_expr()?);
-            Ok(SyntaxNode::Unary(UnaryNode { op_token, node }))
+
+            let source = Source::new(op_token.source.start, get_source(&node).end);
+            Ok(SyntaxNode::Unary(UnaryNode {
+                op_token,
+                node,
+                source,
+            }))
         } else {
             let func = |parser: &mut Parser| parser.arith_expr();
             self.bin_op(
@@ -259,7 +307,7 @@ impl<'a> Parser<'a> {
 
     /// decl_stmt = KW:LET IDENTIFIER EQ expr
     fn decl_stmt(&mut self) -> Result<SyntaxNode> {
-        self.lexer.next().unwrap().unwrap();
+        let start = self.lexer.next().unwrap().unwrap().source.start;
         let identifier_token = match self.lexer.peek() {
             Some(Ok(Token {
                 value: TokenType::Identifier(_),
@@ -290,11 +338,13 @@ impl<'a> Parser<'a> {
         };
 
         let expr = self.expr()?;
+        let source = Source::new(start, get_source(&expr).end);
         let expression = Some(Box::new(expr));
         Ok(SyntaxNode::Variable(VariableNode {
             identifier_token,
             expression,
             assign: true,
+            source,
         }))
     }
 
@@ -328,7 +378,8 @@ impl<'a> Parser<'a> {
                     self.skip_passed(TokenType::RBlock)?;
                 }
                 let inner = Box::new(result?);
-                Ok(SyntaxNode::Statement(StatementNode { inner }))
+                let source = get_source(&inner);
+                Ok(SyntaxNode::Statement(StatementNode { inner, source }))
             }
             Some(Ok(Token {
                 value: TokenType::Keyword("for"),
@@ -339,7 +390,8 @@ impl<'a> Parser<'a> {
                     self.skip_passed(TokenType::RBlock)?;
                 }
                 let inner = Box::new(result?);
-                Ok(SyntaxNode::Statement(StatementNode { inner }))
+                let source = get_source(&inner);
+                Ok(SyntaxNode::Statement(StatementNode { inner, source }))
             }
             Some(Ok(Token {
                 value: TokenType::Keyword("while"),
@@ -350,7 +402,8 @@ impl<'a> Parser<'a> {
                     self.skip_passed(TokenType::RBlock)?;
                 }
                 let inner = Box::new(result?);
-                Ok(SyntaxNode::Statement(StatementNode { inner }))
+                let source = get_source(&inner);
+                Ok(SyntaxNode::Statement(StatementNode { inner, source }))
             }
             Some(Ok(Token {
                 value: TokenType::Keyword("let"),
@@ -363,23 +416,26 @@ impl<'a> Parser<'a> {
                     self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
                 }
                 let inner = Box::new(result?);
-                Ok(SyntaxNode::Statement(StatementNode { inner }))
+                let source = get_source(&inner);
+                Ok(SyntaxNode::Statement(StatementNode { inner, source }))
             }
             Some(Ok(Token {
                 value: TokenType::Keyword("brk"),
                 ..
             })) => {
                 let token = self.lexer.next().unwrap().unwrap();
+                let source = token.source;
                 self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
-                Ok(SyntaxNode::Break(BreakNode(token)))
+                Ok(SyntaxNode::Break(BreakNode(token, source)))
             }
             Some(Ok(Token {
                 value: TokenType::Keyword("con"),
                 ..
             })) => {
                 let token = self.lexer.next().unwrap().unwrap();
+                let source = token.source;
                 self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
-                Ok(SyntaxNode::Continue(ContinueNode(token)))
+                Ok(SyntaxNode::Continue(ContinueNode(token, source)))
             }
             Some(Ok(_)) => {
                 let result = self.expr();
@@ -389,7 +445,8 @@ impl<'a> Parser<'a> {
                     self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
                 }
                 let inner = Box::new(result?);
-                Ok(SyntaxNode::Statement(StatementNode { inner }))
+                let source = get_source(&inner);
+                Ok(SyntaxNode::Statement(StatementNode { inner, source }))
             }
             Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
             _ => unreachable!("Infallible since EOF is never parsed"),

@@ -1,7 +1,7 @@
 use std::ops::{Add, Div, Mul, Sub};
 
 use super::{
-    ExecutionContext, Interpret, InterpretedType, InterpreterResult, RTError, TermNode, UnaryNode,
+    ExecutionContext, Interpret, InterpretedType, Result, RTError, TermNode, UnaryNode,
 };
 use crate::lexer::{CompType, LogicType};
 
@@ -123,7 +123,7 @@ impl Mul for InterpretedType {
 }
 
 impl Div for InterpretedType {
-    type Output = Result<InterpretedType, RTError>;
+    type Output = Result;
 
     fn div(self, rhs: Self) -> Self::Output {
         if rhs.is_zero() {
@@ -278,15 +278,12 @@ impl TermNode {
         lhs: InterpretedType,
         rhs: InterpretedType,
         context: &ExecutionContext,
-    ) -> InterpreterResult {
+    ) -> Result {
         match arith_type {
             '+' => Ok(lhs + rhs),
             '-' => Ok(lhs - rhs),
             '*' => Ok(lhs * rhs),
-            '/' => match lhs / rhs {
-                Ok(res) => Ok(res),
-                Err(err) => Err(err.into(context)),
-            },
+            '/' => lhs / rhs,
             _ => unreachable!("unknown arithmetic operation"),
         }
     }
@@ -296,7 +293,7 @@ impl TermNode {
         cmp_type: CompType,
         lhs: InterpretedType,
         rhs: InterpretedType,
-    ) -> InterpreterResult {
+    ) -> Result {
         match cmp_type {
             CompType::EE => Ok(InterpretedType::Bool(lhs == rhs)),
             CompType::NE => Ok(InterpretedType::Bool(lhs != rhs)),
@@ -307,7 +304,7 @@ impl TermNode {
         }
     }
 
-    pub fn logic_op(&self, lgc_type: LogicType, lhs: bool, rhs: bool) -> InterpreterResult {
+    pub fn logic_op(&self, lgc_type: LogicType, lhs: bool, rhs: bool) -> Result {
         match lgc_type {
             LogicType::AND => Ok(InterpretedType::Bool(lhs && rhs)),
             LogicType::OR => Ok(InterpretedType::Bool(lhs || rhs)),
@@ -317,12 +314,11 @@ impl TermNode {
 }
 
 impl UnaryNode {
-    pub fn arith_op(&self, arith_type: char, context: &mut ExecutionContext) -> InterpreterResult {
+    pub fn arith_op(&self, arith_type: char, context: &mut ExecutionContext) -> Result {
         match arith_type {
             '+' => self.node.interpret(context),
             '-' => {
                 let rhs = self.node.interpret(context)?;
-                context.current_pos = self.pos;
                 Ok(InterpretedType::Int(-1) * rhs)
             }
             _ => unreachable!("A unary arithmetic operation can only be -/+"),
@@ -333,11 +329,10 @@ impl UnaryNode {
         &self,
         lgc_type: LogicType,
         context: &mut ExecutionContext,
-    ) -> InterpreterResult {
+    ) -> Result {
         match lgc_type {
             LogicType::NOT => {
                 let rhs = self.node.interpret(context)?;
-                context.current_pos = self.pos;
                 Ok(InterpretedType::Bool(!bool::from(rhs)))
             }
             _ => unreachable!("A unary operator can only be !"),

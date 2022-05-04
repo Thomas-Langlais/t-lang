@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter, Result as FormatResult};
 
-use crate::lexer::{OperationTokenType, TokenType};
+use crate::lexer::{OperationTokenType, TokenType, Source};
 use crate::parser::{
     FactorNode, ForNode, IfNode, StatementListNode, StatementNode, SyntaxNode, TermNode, UnaryNode,
     VariableNode, WhileNode,
@@ -24,32 +24,7 @@ pub struct RTError {
     details: &'static str,
 }
 
-#[derive(Debug)]
-pub struct InterpreterError {
-    pub name: &'static str,
-    pub details: &'static str,
-    pub source: String,
-    pub line: usize,
-    pub start: usize,
-    pub end: usize,
-}
-
-impl<'a> RTError {
-    pub fn into(self, context: &ExecutionContext) -> InterpreterError {
-        let (start, end) = context.current_pos;
-        let line = context.line;
-        InterpreterError {
-            name: self.name,
-            details: self.details,
-            source: context.source_text.clone(),
-            start,
-            end,
-            line,
-        }
-    }
-}
-
-pub type InterpreterResult = Result<InterpretedType, InterpreterError>;
+pub type Result = std::result::Result<InterpretedType, RTError>;
 
 impl Display for InterpretedType {
     fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
@@ -63,57 +38,23 @@ impl Display for InterpretedType {
     }
 }
 
-impl Display for InterpreterError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
-        let line_header = format!("line {line}: ", line = self.line);
-
-        let underline = (1..self.start + line_header.len())
-            .map(|_| ' ')
-            .chain((self.start..=self.end).map(|_| '^'))
-            .collect::<String>();
-
-        let source = self
-            .source
-            .lines()
-            .enumerate()
-            .skip_while(|(i, _)| i + 1 != self.line)
-            .map(|(_, line)| line)
-            .next()
-            .unwrap();
-
-        write!(
-            f,
-            "{name} - {details}\n\
-            {line_header}{source}\n\
-            {underline}",
-            name = self.name,
-            details = self.details
-        )
-    }
-}
-
 pub struct ExecutionContext<'a> {
-    source_text: String,
-    current_pos: (usize, usize),
-    line: usize,
+    source: Source,
     symbol_table: &'a SymbolTable<'a>,
     parent_context: Option<&'a ExecutionContext<'a>>,
 }
 
 impl<'a> ExecutionContext<'a> {
-    pub fn new(source_text: String, symbol_table: &'a SymbolTable<'a>) -> ExecutionContext<'a> {
+    pub fn new(symbol_table: &'a SymbolTable<'a>) -> ExecutionContext<'a> {
         ExecutionContext {
-            source_text,
-            current_pos: (0, 0),
-            line: 0,
+            source: Source::default(),
             symbol_table,
             parent_context: None,
         }
     }
 
-    fn visit(&mut self, pos: (usize, usize), line: usize) {
-        self.current_pos = pos;
-        self.line = line;
+    fn visit(&mut self, source: Source) {
+        self.source = source;
     }
 }
 
@@ -151,11 +92,11 @@ impl From<SymbolValue> for InterpretedType {
 pub trait Interpret<'a> {
     // I should try to add some trait methods that "visits" the children nodes
     // and use those instead.
-    fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult;
+    fn interpret(&self, context: &'a mut ExecutionContext) -> Result;
 }
 
 impl<'a> Interpret<'a> for SyntaxNode {
-    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+    fn interpret(&self, context: &mut ExecutionContext) -> Result {
         match self {
             Self::If(node) => node.interpret(context),
             Self::Statements(node) => node.interpret(context),
@@ -173,10 +114,11 @@ impl<'a> Interpret<'a> for SyntaxNode {
 }
 
 impl<'a> Interpret<'a> for StatementListNode {
-    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+    fn interpret(&self, context: &mut ExecutionContext) -> Result {
         // compile complains about last_result being unitialized without the assignment
         // the parser has to output at least one statement, so let's a temp value
         let mut last_result = InterpretedType::Int(0);
+        context.visit(self.source);
 
         for statement in &self.statements {
             last_result = statement.interpret(context)?;
@@ -193,14 +135,18 @@ impl<'a> Interpret<'a> for StatementListNode {
 }
 
 impl<'a> Interpret<'a> for StatementNode {
-    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+    fn interpret(&self, context: &mut ExecutionContext) -> Result {
+        context.visit(self.source);
         self.inner.interpret(context)
     }
 }
 
 impl<'a> Interpret<'a> for IfNode {
-    fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult {
+    fn interpret(&self, context: &'a mut ExecutionContext) -> Result {
+        context.visit(self.source);
+        
         for case in &self.if_nodes {
+            context.visit(case.source);
             let output = case.condition.interpret(context)?;
             if bool::from(output) {
                 return case.statements.interpret(context);
@@ -216,7 +162,9 @@ impl<'a> Interpret<'a> for IfNode {
 }
 
 impl<'a> Interpret<'a> for ForNode {
-    fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult {
+    fn interpret(&self, context: &'a mut ExecutionContext) -> Result {
+        context.visit(self.source);
+
         if let Some(decl) = &self.declaration {
             decl.interpret(context)?;
         }
@@ -243,7 +191,9 @@ impl<'a> Interpret<'a> for ForNode {
 }
 
 impl<'a> Interpret<'a> for WhileNode {
-    fn interpret(&self, context: &'a mut ExecutionContext) -> InterpreterResult {
+    fn interpret(&self, context: &'a mut ExecutionContext) -> Result {
+        context.visit(self.source);
+        
         loop {
             if !bool::from(self.condition.interpret(context)?) {
                 break;
@@ -265,7 +215,9 @@ impl<'a> Interpret<'a> for WhileNode {
 }
 
 impl<'a> Interpret<'a> for VariableNode {
-    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+    fn interpret(&self, context: &mut ExecutionContext) -> Result {
+        context.visit(self.source);
+        
         match &self.identifier_token.value {
             TokenType::Identifier(identifier) => {
                 if self.assign {
@@ -275,28 +227,22 @@ impl<'a> Interpret<'a> for VariableNode {
                     };
                     let result = expression.interpret(context)?;
 
-                    context.visit(self.pos, self.line);
+                    context.visit(self.source);
                     if let Err(err) = context
                         .symbol_table
                         .set(identifier, SymbolValue::from(&result))
                     {
-                        return Err(err.into(context));
+                        return Err(err);
                     }
 
                     Ok(result)
                 } else {
-                    context.visit(self.pos, self.line);
+                    context.visit(self.source);
                     let value_result = context.symbol_table.get(identifier);
                     if value_result.is_none() {
-                        let (start, end) = context.current_pos;
-                        let line = context.line;
-                        return Err(InterpreterError {
+                        return Err(RTError {
                             name: "Symbol not found",
                             details: "The variable does not exist in the current context",
-                            source: context.source_text.clone(),
-                            start,
-                            end,
-                            line,
                         });
                     }
 
@@ -310,8 +256,8 @@ impl<'a> Interpret<'a> for VariableNode {
 }
 
 impl<'a> Interpret<'a> for FactorNode {
-    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
-        context.visit(self.pos, self.line);
+    fn interpret(&self, context: &mut ExecutionContext) -> Result {
+        context.visit(self.source);
 
         match self.token.value {
             TokenType::Int(int) => Ok(InterpretedType::Int(int)),
@@ -322,8 +268,8 @@ impl<'a> Interpret<'a> for FactorNode {
 }
 
 impl<'a> Interpret<'a> for UnaryNode {
-    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
-        context.visit(self.pos, self.line);
+    fn interpret(&self, context: &mut ExecutionContext) -> Result {
+        context.visit(self.source);
 
         match self.op_token.value {
             TokenType::Operation(OperationTokenType::Arithmetic(arith_type)) => {
@@ -338,12 +284,12 @@ impl<'a> Interpret<'a> for UnaryNode {
 }
 
 impl<'a> Interpret<'a> for TermNode {
-    fn interpret(&self, context: &mut ExecutionContext) -> InterpreterResult {
+    fn interpret(&self, context: &mut ExecutionContext) -> Result {
         let lhs = self.left_node.interpret(context)?;
         let rhs = self.right_node.interpret(context)?;
 
         // set the term position after the children have finished
-        context.visit(self.pos, self.line);
+        context.visit(self.source);
 
         match self.op_token.value {
             TokenType::Operation(OperationTokenType::Arithmetic(arith_type)) => {

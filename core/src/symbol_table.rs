@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use super::{ExecutionContext, RTError};
+use crate::exec::{ExecutionContext, RTError};
 
 #[derive(Debug, Clone, Copy)]
 pub enum SymbolValue {

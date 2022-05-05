@@ -1,11 +1,11 @@
-use core::lexer::Source;
 use std::collections::HashMap;
 use std::io::{self, stdin, stdout, Read, Write};
 
 // this is a form of inport in JS
 use core::errors;
-use core::interpreter::{ExecutionContext, Interpret, SymbolEntry, SymbolTable, SymbolValue};
-use core::parser::{Error, Parser};
+use core::exec::{ExecutionContext, Interpret};
+use core::parser::Parser;
+use core::symbol_table::{SymbolEntry, SymbolTable, SymbolValue};
 
 fn main() -> io::Result<()> {
     println!("T-Lang Console");
@@ -52,14 +52,9 @@ fn main() -> io::Result<()> {
             Ok(None) => continue,
             Ok(Some(node)) => node,
             Err(err) => {
-                let (details, source) = match err {
-                    Error::Bad(msg, source) => (msg.to_string(), source),
-                    Error::Io(err) => (err.to_string(), Source::default()),
-                };
-                stdout().lock().write_all(
-                    errors::format_err("Illegal Syntax Error".to_string(), details, source, buf)
-                        .as_bytes(),
-                )?;
+                stdout()
+                    .lock()
+                    .write_all(&errors::format_err(err, buf, None))?;
                 println!();
                 continue;
             }
@@ -71,15 +66,9 @@ fn main() -> io::Result<()> {
                 println!("= {}", inter_type);
             }
             Err(err) => {
-                stdout().lock().write_all(
-                    errors::format_err(
-                        err.name.to_string(),
-                        err.details.to_string(),
-                        context.source(),
-                        buf,
-                    )
-                    .as_bytes(),
-                )?;
+                stdout()
+                    .lock()
+                    .write_all(&errors::format_err(err, buf, Some(context.source())))?;
                 println!();
             }
         }

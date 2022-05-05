@@ -1,7 +1,8 @@
 use std::ops::{Add, Div, Mul, Sub};
 
-use super::{ExecutionContext, Interpret, InterpretedType, RTError, Result, TermNode, UnaryNode};
 use crate::lexer::{CompType, LogicType};
+use crate::ast::{TermNode, UnaryNode};
+use crate::exec::{ExecutionContext, Interpret, InterpretedType, RTError, Result};
 
 impl Add for InterpretedType {
     type Output = Self;

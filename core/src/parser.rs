@@ -1,12 +1,117 @@
-use crate::lexer::{CompType, LogicType, OperationTokenType, Source, Token, TokenType};
-use crate::parser::{
-    ConditionNode, FactorNode, IfNode, Parser, Result, StatementListNode, StatementNode,
-    SyntaxNode, UnaryNode, VariableNode,
-};
+use std::io;
+use std::iter::Peekable;
 
-use super::{get_source, BreakNode, ContinueNode, Error, ForNode, WhileNode};
+use crate::lexer::{CompType, Lexer, LogicType, OperationTokenType, Source, Token, TokenType};
+use crate::ast::{get_source, SyntaxNode, StatementListNode, StatementNode, IfNode, FactorNode, TermNode, WhileNode, ConditionNode, ContinueNode, BreakNode, VariableNode, ForNode, UnaryNode};
+
+pub struct Parser<'a> {
+    lexer: Peekable<Lexer<'a>>,
+}
+
+#[derive(Debug)]
+pub enum Error {
+    Bad(&'static str, Source),
+    Io(io::Error),
+}
+
+type Result<T> = std::result::Result<T, Error>;
 
 impl<'a> Parser<'a> {
+    pub fn from(reader: &'a mut dyn io::Read) -> Self {
+        Parser {
+            lexer: Lexer::from(reader).peekable(),
+        }
+    }
+
+    /**
+     * helper functions for parsing grammar nodes into the stacks
+     */
+    fn bin_op(
+        &mut self,
+        func: fn(&mut Parser) -> Result<SyntaxNode>,
+        ops: &[TokenType],
+    ) -> Result<SyntaxNode> {
+        let mut left = func(self)?;
+
+        while let Some(Ok(token)) = self.lexer.peek() {
+            if !ops.iter().any(|op| token.value == *op) {
+                break;
+            }
+
+            let op_token = self.lexer.next().unwrap().unwrap();
+            if let TokenType::Bad(msg, source) = op_token.value {
+                return Err(Error::Bad(msg, source));
+            }
+
+            let right = func(self)?;
+
+            let start = get_source(&left).start;
+            let end = get_source(&right).end;
+            let source = Source::new(start, end);
+
+            left = SyntaxNode::Term(TermNode {
+                left_node: Box::new(left),
+                right_node: Box::new(right),
+                op_token,
+                source,
+            });
+        }
+
+        Ok(left)
+    }
+
+    fn skip_passed(&mut self, token_type: TokenType) -> Result<()> {
+        loop {
+            match self.lexer.peek() {
+                Some(Err(_)) => break Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
+                Some(Ok(Token { value, .. })) if value == &token_type => {
+                    self.lexer.next();
+                    break Ok(());
+                }
+                _ => {
+                    self.lexer.next();
+                }
+            }
+        }
+    }
+
+    // TODO: refactor the grammar to use this utility func
+    fn expect_and_consume(
+        &mut self,
+        token_type: &'static TokenType,
+        error: &'static str,
+    ) -> Result<Token> {
+        match self.lexer.peek() {
+            Some(Ok(Token { value, .. })) if value == token_type => {
+                Ok(self.lexer.next().unwrap().unwrap())
+            }
+            Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
+            _ => Err(Error::Bad(
+                error,
+                self.lexer.peek().as_ref().unwrap().as_ref().unwrap().source,
+            )),
+        }
+    }
+
+    fn expect_and_parse<F>(
+        &mut self,
+        parse: F,
+        token_type: &'static TokenType,
+        error: &'static str,
+    ) -> Result<SyntaxNode>
+    where
+        F: FnOnce(&mut Self) -> Result<SyntaxNode>,
+    {
+        match self.lexer.peek() {
+            Some(Ok(Token { value, .. })) if value == token_type => Ok(parse(self)?),
+            Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
+            _ => Err(Error::Bad(
+                error,
+                self.lexer.peek().as_ref().unwrap().as_ref().unwrap().source,
+            )),
+        }
+    }
+
     /// atom = INT|FLOAT|IDENTIFIER
     ///      = LParen expr RParen
     fn atom(&mut self) -> Result<SyntaxNode> {
@@ -367,7 +472,7 @@ impl<'a> Parser<'a> {
     ///           = KW:CONTINUE LINETERM
     ///           = KW:BREAK LINETERM
     ///           = expr LINETERM
-    pub fn statement(&mut self) -> Result<SyntaxNode> {
+    fn statement(&mut self) -> Result<SyntaxNode> {
         match self.lexer.peek() {
             Some(Ok(Token {
                 value: TokenType::Keyword("if"),
@@ -451,5 +556,22 @@ impl<'a> Parser<'a> {
             Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
             _ => unreachable!("Infallible since EOF is never parsed"),
         }
+    }
+
+    pub fn parse_one(&mut self) -> Result<Option<SyntaxNode>> {
+        let res = match self.lexer.peek() {
+            Some(Ok(Token {
+                value: TokenType::EOF,
+                ..
+            })) => Ok(None),
+            Some(Ok(_)) => match self.statement() {
+                Ok(node) => Ok(Some(node)),
+                Err(e) => Err(e),
+            },
+            Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
+            _ => panic!("lexer always has a some"),
+        };
+
+        res
     }
 }

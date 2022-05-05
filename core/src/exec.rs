@@ -1,14 +1,12 @@
 use std::fmt::{Display, Formatter, Result as FormatResult};
 
 use crate::lexer::{OperationTokenType, TokenType, Source};
-use crate::parser::{
+use crate::ast::{
     FactorNode, ForNode, IfNode, StatementListNode, StatementNode, SyntaxNode, TermNode, UnaryNode,
     VariableNode, WhileNode,
 };
 
-mod operations;
-pub mod symbol_table;
-pub use symbol_table::{SymbolEntry, SymbolTable, SymbolValue};
+use crate::symbol_table::{SymbolTable, SymbolValue};
 
 pub enum InterpretedType {
     Float(f64),
@@ -39,9 +37,9 @@ impl Display for InterpretedType {
 }
 
 pub struct ExecutionContext<'a> {
-    source: Source,
-    symbol_table: &'a SymbolTable<'a>,
-    parent_context: Option<&'a ExecutionContext<'a>>,
+    pub (crate) source: Source,
+    pub (crate) symbol_table: &'a SymbolTable<'a>,
+    pub (crate) parent_context: Option<&'a ExecutionContext<'a>>,
 }
 
 impl<'a> ExecutionContext<'a> {

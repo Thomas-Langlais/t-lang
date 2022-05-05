@@ -1,8 +1,6 @@
 use std::ops::{Add, Div, Mul, Sub};
 
-use super::{
-    ExecutionContext, Interpret, InterpretedType, Result, RTError, TermNode, UnaryNode,
-};
+use super::{ExecutionContext, Interpret, InterpretedType, RTError, Result, TermNode, UnaryNode};
 use crate::lexer::{CompType, LogicType};
 
 impl Add for InterpretedType {
@@ -272,13 +270,7 @@ impl PartialOrd for InterpretedType {
 }
 
 impl TermNode {
-    pub fn arith_op(
-        &self,
-        arith_type: char,
-        lhs: InterpretedType,
-        rhs: InterpretedType,
-        context: &ExecutionContext,
-    ) -> Result {
+    pub fn arith_op(&self, arith_type: char, lhs: InterpretedType, rhs: InterpretedType) -> Result {
         match arith_type {
             '+' => Ok(lhs + rhs),
             '-' => Ok(lhs - rhs),
@@ -325,11 +317,7 @@ impl UnaryNode {
         }
     }
 
-    pub fn logic_op(
-        &self,
-        lgc_type: LogicType,
-        context: &mut ExecutionContext,
-    ) -> Result {
+    pub fn logic_op(&self, lgc_type: LogicType, context: &mut ExecutionContext) -> Result {
         match lgc_type {
             LogicType::NOT => {
                 let rhs = self.node.interpret(context)?;

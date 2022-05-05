@@ -1,11 +1,8 @@
-use std::cell::RefCell;
 use std::iter::Peekable;
 use std::io;
-use std::rc::Rc;
 
 mod reader;
 mod rules;
-mod strings;
 
 // statics
 static KEYWORDS: &[&str] = &["let", "if", "else", "for", "while", "brk", "con"];
@@ -99,7 +96,7 @@ impl Position {
     }
 }
 
-trait CharOps {
+pub (crate) trait CharOps {
     fn is_separator(&self) -> bool;
 
     fn is_space(&self) -> bool;
@@ -132,7 +129,6 @@ that the scope of the readable is where the methods are being called. */
 pub(crate) struct Lexer<'a> {
     pub (crate) input: Peekable<reader::CharReader<'a>>,
     pub (crate) reading: bool,
-    pub (crate) read_buffer: Rc<RefCell<Vec<char>>>,
     pub (crate) src: Position,
 }
 
@@ -149,7 +145,6 @@ impl<'a> From<&'a mut dyn io::Read> for Lexer<'a> {
         Lexer {
             input: reader::CharReader::from(reader).peekable(),
             reading: false,
-            read_buffer: Rc::new(RefCell::new(vec![])),
             src: Position {
                 index: 0,
                 line: 1,
@@ -203,7 +198,6 @@ impl<'a> Lexer<'a> {
                 } else {
                     self.reading = true;
                 }
-                self.read_buffer.borrow_mut().push(c);
                 Some(Ok(c))
             }
             Some(Err(_)) => {

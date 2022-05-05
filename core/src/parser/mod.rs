@@ -1,89 +1,9 @@
-use std::cell::{RefCell};
-use std::fmt::{Debug, Display, Formatter, Result as FormatResult};
 use std::io;
 use std::iter::Peekable;
-use std::rc::Rc;
 
-// use crate::interpreter::{ExecutionContext, Interpret, InterpreterResult};
 use crate::lexer::{Lexer, Source, Token, TokenType};
 
 mod grammar;
-
-#[derive(Debug)]
-pub enum ParseError {
-    SyntaxError(IllegalSyntaxError),
-}
-
-#[derive(Debug)]
-pub struct IllegalSyntaxError {
-    pub name: String,
-    pub details: String,
-    pub source: String,
-    pub location: Source,
-    reached_eof: bool,
-}
-
-impl IllegalSyntaxError {
-    fn new(
-        name: &str,
-        details: &str,
-        location: Source,
-        source: String,
-        reached_eof: bool,
-    ) -> IllegalSyntaxError {
-        IllegalSyntaxError {
-            name: name.to_string(),
-            details: details.to_string(),
-            source,
-            location,
-            reached_eof,
-        }
-    }
-
-    fn new_invalid_syntax(details: &str, location: Source, source: &[u8]) -> IllegalSyntaxError {
-        let src: String = source.iter().map(|&b| b as char).collect();
-        let reached_eof = location.start == location.end && location.start.index == src.len() - 1;
-        Self::new("Illegal Syntax", details, location, src, reached_eof)
-    }
-}
-
-impl Display for IllegalSyntaxError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
-        if self.reached_eof {
-            return write!(
-                f,
-                "{name} - {details}\nEnd of file reached",
-                name = self.name,
-                details = self.details
-            );
-        }
-
-        let line_header = format!("line {line}: ", line = self.location.start.line);
-
-        let underline = (1..self.location.start.column + line_header.len())
-            .map(|_| ' ')
-            .chain((self.location.start.index..=self.location.end.index).map(|_| '^'))
-            .collect::<String>();
-
-        let source = self
-            .source
-            .lines()
-            .enumerate()
-            .skip_while(|(i, _)| i + 1 != self.location.start.line)
-            .map(|(_, line)| line)
-            .next()
-            .unwrap();
-
-        write!(
-            f,
-            "{name} - {details}\n\
-            {line_header}{source}\n\
-            {underline}",
-            name = self.name,
-            details = self.details
-        )
-    }
-}
 
 #[derive(Debug)]
 pub struct VariableNode {
@@ -195,21 +115,6 @@ fn get_source(node: &SyntaxNode) -> Source {
 
 pub struct Parser<'a> {
     lexer: Peekable<Lexer<'a>>,
-    buf: Rc<RefCell<Vec<char>>>,
-}
-
-impl<'a> From<&'a mut dyn io::Read> for Parser<'a> {
-    fn from(reader: &'a mut dyn io::Read) -> Self {
-        let buf = Rc::new(RefCell::new(vec![]));
-        
-        let mut lexer = Lexer::from(reader);
-        lexer.read_buffer = Rc::clone(&buf);
-        
-        Parser {
-            lexer: lexer.peekable(),
-            buf,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -221,6 +126,12 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 impl<'a> Parser<'a> {
+    pub fn from(reader: &'a mut dyn io::Read) -> Self {
+        Parser {
+            lexer: Lexer::from(reader).peekable(),
+        }
+    }
+
     /**
      * helper functions for parsing grammar nodes into the stacks
      */
@@ -325,9 +236,5 @@ impl<'a> Parser<'a> {
         };
 
         res
-    }
-
-    pub fn source(&self) -> Vec<char> {
-        unsafe { (&*self.buf.as_ptr()).clone() }
     }
 }

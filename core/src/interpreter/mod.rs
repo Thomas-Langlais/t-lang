@@ -20,8 +20,8 @@ pub enum InterpretedType {
 
 #[derive(Debug)]
 pub struct RTError {
-    name: &'static str,
-    details: &'static str,
+    pub name: &'static str,
+    pub details: &'static str,
 }
 
 pub type Result = std::result::Result<InterpretedType, RTError>;
@@ -51,6 +51,10 @@ impl<'a> ExecutionContext<'a> {
             symbol_table,
             parent_context: None,
         }
+    }
+
+    pub fn source(&self) -> Source {
+        self.source
     }
 
     fn visit(&mut self, source: Source) {
@@ -293,7 +297,7 @@ impl<'a> Interpret<'a> for TermNode {
 
         match self.op_token.value {
             TokenType::Operation(OperationTokenType::Arithmetic(arith_type)) => {
-                self.arith_op(arith_type, lhs, rhs, context)
+                self.arith_op(arith_type, lhs, rhs)
             }
             TokenType::Operation(OperationTokenType::Comparison(cmp_type)) => {
                 self.comp_op(cmp_type, lhs, rhs)

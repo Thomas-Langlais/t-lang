@@ -1,17 +1,20 @@
+use core::lexer::Source;
 use std::collections::HashMap;
-use std::io::{self, BufRead, Write};
-use std::str;
+use std::io::{self, stdin, stdout, Read, Write};
 
 // this is a form of inport in JS
+use core::errors;
 use core::interpreter::{ExecutionContext, Interpret, SymbolEntry, SymbolTable, SymbolValue};
-use core::lexer::Lexer;
-use core::parser::Parser;
+use core::parser::{Error, Parser};
 
-static REPL_EXEC: &str = ".exec\n";
-
-fn main() {
+fn main() -> io::Result<()> {
     println!("T-Lang Console");
     println!("--------------------------------------");
+    println!("To execute the t-lang code, press Ctrl+D.");
+    println!();
+    println!("If you are running t-lang in windows, unfortunately");
+    println!("I do not know the key control to trigger the EOF");
+    println!();
 
     let global_symbol_table = SymbolTable::new(HashMap::from([
         (
@@ -30,86 +33,57 @@ fn main() {
         ),
     ]));
 
-    'repl: loop {
+    loop {
         print!("> ");
-        io::stdout().flush().unwrap();
-        let stdin = io::stdin();
+        stdout().lock().flush()?;
+        let stdin = stdin();
         let mut handle = stdin.lock();
-        // can only handle one line at a time right now
-        let mut buffer: Vec<u8> = Vec::new();
-        let mut bytes_read_offset = 0;
+        let mut buf = String::new();
 
-        'read: loop {
-            let bytes = handle.read_until(b'\n', &mut buffer).unwrap();
-            if bytes <= 1 && buffer.len() == bytes {
-                // restart the repl loop when only a newline is in the buffer
-                continue 'repl;
-            } else if bytes == 1 {
-                bytes_read_offset = buffer.len();
-                // allow newline spacing
-                continue 'read;
+        match handle.read_to_string(&mut buf) {
+            Ok(_) => (),
+            Err(_) => break,
+        };
+
+        let input = &mut buf.as_bytes();
+        let mut parser = Parser::from(input);
+
+        let ast = match parser.parse_one() {
+            Ok(None) => continue,
+            Ok(Some(node)) => node,
+            Err(err) => {
+                let (details, source) = match err {
+                    Error::Bad(msg, source) => (msg.to_string(), source),
+                    Error::Io(err) => (err.to_string(), Source::default()),
+                };
+                stdout().lock().write_all(
+                    errors::format_err("Illegal Syntax Error".to_string(), details, source, buf)
+                        .as_bytes(),
+                )?;
+                println!();
+                continue;
             }
+        };
 
-            if bytes >= REPL_EXEC.len()
-                && &buffer[(bytes_read_offset + bytes - REPL_EXEC.len())..(buffer.len())]
-                    == REPL_EXEC.as_bytes()
-            {
-                for _ in 0..REPL_EXEC.len() {
-                    buffer.pop();
-                }
-                break 'read;
-            }
-
-            let slice = &buffer[bytes_read_offset..(buffer.len() - 1)];
-            if slice.iter().all(|&b| b == b' ' || b == b'\n')
-            {
-                // if all whitespaces, continue the read
-                continue 'read;
-            }
-
-            bytes_read_offset = buffer.len();
-            
-            if buffer[buffer.len() - 2] == b'\\' {
-                buffer.remove(buffer.len() - 2);
-                bytes_read_offset -= 1;
-                continue 'read;
-            }
-            if buffer[buffer.len() - 2] != b';' {
-                // leave if there was no line termination char
-                break 'read;
-            }
-        }
-
-        // set the io handle for reading the stream
-        let mut reader = Lexer::new(&buffer);
-        let tokens_result = reader.parse_tokens();
-
-        if let Err(err) = tokens_result {
-            println!("{}", err);
-            continue;
-        }
-        let tokens = unsafe { tokens_result.unwrap_unchecked() };
-
-        let mut parser = Parser::new(tokens, buffer.as_slice());
-        let ast_result = parser.generate_syntax_tree();
-
-        if let Err(err) = ast_result {
-            println!("{}", err);
-            continue;
-        }
-
-        let ast = unsafe { ast_result.unwrap_unchecked() };
-        let mut context = ExecutionContext::new(
-            String::from_utf8(buffer.to_vec()).unwrap(),
-            &global_symbol_table,
-        );
+        let mut context = ExecutionContext::new(&global_symbol_table);
         match ast.interpret(&mut context) {
             Ok(inter_type) => {
                 println!("= {}", inter_type);
             }
             Err(err) => {
-                println!("{}", err);
+                stdout().lock().write_all(
+                    errors::format_err(
+                        err.name.to_string(),
+                        err.details.to_string(),
+                        context.source(),
+                        buf,
+                    )
+                    .as_bytes(),
+                )?;
+                println!();
             }
         }
     }
+
+    Ok(())
 }

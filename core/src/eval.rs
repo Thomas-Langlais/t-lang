@@ -1,8 +1,7 @@
 use std::ops::{Add, Div, Mul, Sub};
 
 use crate::lexer::{CompType, LogicType};
-use crate::ast::{TermNode, UnaryNode};
-use crate::exec::{ExecutionContext, Interpret, InterpretedType, RTError, Result};
+use crate::exec::{InterpretedType, RTError, Result, Machine};
 
 impl Add for InterpretedType {
     type Output = Self;
@@ -129,7 +128,7 @@ impl Div for InterpretedType {
             return Err(RTError {
                 name: "Divide by zero",
                 details: "The right hand side of the division expression is 0",
-            });
+            }.into());
         }
 
         match (self, rhs) {
@@ -270,8 +269,29 @@ impl PartialOrd for InterpretedType {
     }
 }
 
-impl TermNode {
-    pub fn arith_op(&self, arith_type: char, lhs: InterpretedType, rhs: InterpretedType) -> Result {
+impl Machine<'_> {
+    pub(crate) async fn unary_arith_op(&self, input: Result, arith_type: char) -> Result {
+        match arith_type {
+            '+' => input,
+            '-' => {
+                let rhs = input?;
+                Ok(InterpretedType::Int(-1) * rhs)
+            }
+            _ => unreachable!("A unary arithmetic operation can only be -/+"),
+        }
+    }
+
+    pub(crate) async fn unary_logic_op(&self, input: Result, lgc_type: LogicType) -> Result {
+        match lgc_type {
+            LogicType::NOT => {
+                let rhs = input?;
+                Ok(InterpretedType::Bool(!bool::from(rhs)))
+            }
+            _ => unreachable!("A unary operator can only be !"),
+        }
+    }
+    
+    pub(crate) async fn term_arith_op(&self, arith_type: char, lhs: InterpretedType, rhs: InterpretedType) -> Result {
         match arith_type {
             '+' => Ok(lhs + rhs),
             '-' => Ok(lhs - rhs),
@@ -281,7 +301,7 @@ impl TermNode {
         }
     }
 
-    pub fn comp_op(
+    pub(crate) async fn term_comp_op(
         &self,
         cmp_type: CompType,
         lhs: InterpretedType,
@@ -297,34 +317,11 @@ impl TermNode {
         }
     }
 
-    pub fn logic_op(&self, lgc_type: LogicType, lhs: bool, rhs: bool) -> Result {
+    pub(crate) async fn term_logic_op(&self, lgc_type: LogicType, lhs: bool, rhs: bool) -> Result {
         match lgc_type {
             LogicType::AND => Ok(InterpretedType::Bool(lhs && rhs)),
             LogicType::OR => Ok(InterpretedType::Bool(lhs || rhs)),
             _ => unreachable!("Cannot interpret ! operation for a term"),
-        }
-    }
-}
-
-impl UnaryNode {
-    pub fn arith_op(&self, arith_type: char, context: &mut ExecutionContext) -> Result {
-        match arith_type {
-            '+' => self.node.interpret(context),
-            '-' => {
-                let rhs = self.node.interpret(context)?;
-                Ok(InterpretedType::Int(-1) * rhs)
-            }
-            _ => unreachable!("A unary arithmetic operation can only be -/+"),
-        }
-    }
-
-    pub fn logic_op(&self, lgc_type: LogicType, context: &mut ExecutionContext) -> Result {
-        match lgc_type {
-            LogicType::NOT => {
-                let rhs = self.node.interpret(context)?;
-                Ok(InterpretedType::Bool(!bool::from(rhs)))
-            }
-            _ => unreachable!("A unary operator can only be !"),
         }
     }
 }

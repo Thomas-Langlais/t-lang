@@ -16,6 +16,7 @@ pub struct SymbolEntry {
     pub is_constant: bool,
 }
 
+#[derive(Default)]
 pub struct SymbolTable<'a> {
     pub symbols: RefCell<HashMap<String, SymbolEntry>>,
     parent_context: Option<&'a ExecutionContext<'a>>,

@@ -1,0 +1,20 @@
+.terminal__text {
+    white-space: pre;
+}
+
+.terminal__cursor {
+    display: inline-block;
+    height: 1em;
+    width: 0.3ch;
+    animation: blink infinite steps(1) 1s;
+}
+
+@keyframes blink {
+    0% {
+        background-color: transparent;
+    }
+
+    50% {
+        background-color: black;
+    }
+}

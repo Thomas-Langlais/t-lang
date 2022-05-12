@@ -6,7 +6,7 @@ document.body.innerHTML = `<!-- <input type="text" id="input"> -->
 <textarea id="input"></textarea>
 <p>Result:</p>
 <div style="white-space: pre; font-family: monospace;" id="code"></div>
-<div style="white-space: pre; font-family: monospace;" id="output"></div>`
+<div style="white-space: pre; font-family: monospace;" id="history"></div>`
 
 start();
 
@@ -15,17 +15,26 @@ const keyboardInterface = terminal.browser_keyboard_interface();
 const outputInterface = terminal.output_interface();
 
 setInterval(() => {
-  const result = outputInterface.poll();
-  if (result) {
-    document.getElementById("output").textContent = result;
+  const output = outputInterface.poll();
+  if (output) {
+    const history = document.getElementById("history");
+    
+    const code = document.createElement("p");
+    code.textContent = output.code;
+    history.prepend(code);
+    const result = document.createElement("p");
+    result.textContent = output.result;
+    history.prepend(result);
+
     document.getElementById("input").value = "";
+    output.free()
   }
 }, 50);
 
 terminal.run_repl_loop();
 
 document.getElementById("input").addEventListener("keydown", (e) => {
-  let handle_keypress = keyboardInterface.send_keyboard_event(e);
-  if (!handle_keypress)
-    e.preventDefault();
+  if (e.repeat) return;
+  keyboardInterface.send_keyboard_event(e);
+  e.preventDefault();
 });

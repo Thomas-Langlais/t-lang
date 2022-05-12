@@ -45,18 +45,37 @@ pub struct TerminalApi {
     buffer: VecDeque<VecDeque<char>>,
     input: WebInputApi,
     key_sender: BrowserKeyboardInterface,
-    output_sender: Sender<String>,
-    output_receiver: Receiver<String>,
+    output_sender: Sender<Output>,
+    output_receiver: Receiver<Output>,
+}
+
+#[wasm_bindgen]
+pub struct Output {
+    code: String,
+    result: String,
+}
+
+#[wasm_bindgen]
+impl Output {
+    #[wasm_bindgen(getter)]
+    pub fn code(&self) -> String {
+        self.code.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn result(&self) -> String {
+        self.result.clone()
+    }
 }
 
 #[wasm_bindgen]
 pub struct OutputInterface {
-    inner: Receiver<String>,
+    inner: Receiver<Output>,
 }
 
 #[wasm_bindgen]
 impl OutputInterface {
-    pub fn poll(&self) -> Option<String> {
+    pub fn poll(&self) -> Option<Output> {
         match self.inner.try_recv() {
             Ok(result) => Some(result),
             Err(TryRecvError::Empty) => None,
@@ -193,12 +212,13 @@ impl TerminalApi {
                     self.buffer.push_front(VecDeque::new());
                     self.cur_pos = CursorPosition::default();
 
+                    let source_text = source_text;
                     let mut bytes = source_text.as_bytes();
                     let mut machine = machine_cell.borrow_mut();
 
                     let output = match machine.exec(&mut bytes).await {
                         Ok(Some(output)) => format!("{}", output).into(),
-                        Err(err) => format_err(err, source_text)
+                        Err(err) => format_err(err, source_text.clone())
                             .into_iter()
                             .map(char::from)
                             .collect::<String>()
@@ -206,12 +226,19 @@ impl TerminalApi {
                         _ => None,
                     };
                     if let Some(msg) = output {
-                        if let Err(err) = self.output_sender.send(msg).await {
+                        if let Err(err) = self
+                            .output_sender
+                            .send(Output {
+                                code: source_text,
+                                result: msg,
+                            })
+                            .await
+                        {
                             panic!("Send to unbounded channel should never fail: {}", err);
                         }
                     }
                 }
-            }
+            };
 
             match &key {
                 Key::ArrowDown
@@ -221,7 +248,8 @@ impl TerminalApi {
                 | Key::Backspace
                 | Key::Char(_)
                 | Key::Eol
-                | Key::Tab => self.draw(),
+                | Key::Tab
+                | Key::Enter => self.draw(),
                 _ => {}
             }
         }

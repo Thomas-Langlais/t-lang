@@ -1,5 +1,6 @@
 use web_sys::KeyboardEvent;
 
+#[derive(Clone, Copy)]
 pub enum Key {
     Backspace,
     Tab,
@@ -12,23 +13,25 @@ pub enum Key {
     Eol,
     Eof,
     Interrupt,
-    Unknown(String),
+    Unknown(u32),
 }
 
 impl From<KeyboardEvent> for Key {
     fn from(ev: KeyboardEvent) -> Self {
+        let any_special_key = ev.alt_key() | ev.ctrl_key() | ev.meta_key() | ev.shift_key();
+
         match ev.key_code() as u8 {
-            8 => Self::Backspace,
-            9 => Self::Tab,
+            8 if !any_special_key => Self::Backspace,
+            9 if !any_special_key => Self::Tab,
             
             10 => Self::Eol,
             13 if ev.shift_key() => Self::Eol,
             13 => Self::Enter,
 
-            37 => Self::ArrowLeft,
-            38 => Self::ArrowUp,
-            39 => Self::ArrowRight,
-            40 => Self::ArrowDown,
+            37 if !any_special_key => Self::ArrowLeft,
+            38 if !any_special_key => Self::ArrowUp,
+            39 if !any_special_key => Self::ArrowRight,
+            40 if !any_special_key => Self::ArrowDown,
             
             b'C' if ev.ctrl_key() => Self::Interrupt,
             b'D' if ev.ctrl_key() => Self::Eof,
@@ -39,15 +42,9 @@ impl From<KeyboardEvent> for Key {
                 if printable && chars.len() == 1 {
                     Self::Char(chars[0])
                 } else {
-                    Self::Unknown(format!("<keycode={}>", ev.key_code()))
+                    Self::Unknown(ev.key_code())
                 }
             }
         }
-    }
-}
-
-impl Key {
-    pub fn is_ctrl_key(&self) -> bool {
-        matches!(self, Self::Interrupt | Self::Eof)
     }
 }

@@ -7,13 +7,19 @@ This is used to restrict what is allowed to be used for programming purposes.
 
 # Grammar rules
 ```
-statement  = for_stmt
+statement  = fn_stmt
+           = for_stmt
            = while_stmt
            = if_stmt
            = decl_stmt LINETERM
            = KW:CONTINUE LINETERM
            = KW:BREAK LINETERM
+           = KW:RETURN expr? LINETERM
            = expr LINETERM
+
+fn_stmt    = KW:FUN IDENTIFIER
+              LParen expr? (COMMA expr)* RParen
+              block
 
 if_stmt    = KW:IF expr block
                 (KW:ELSE KW:IF expr block)*
@@ -42,7 +48,8 @@ term       = factor (MUL|DIV factor)*
 factor     = atom
            = (PLUS|MINUS) factor
 
-atom       = INT|FLOAT|IDENTIFIER
+atom       = INT|FLOAT
+           = IDENTIFIER (LParen expr? (COMMA expr)* RParen)?
            = LParen expr RParen
 ```
 

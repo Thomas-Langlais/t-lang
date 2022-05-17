@@ -1,10 +1,12 @@
-use std::iter::Peekable;
 use std::io;
+use std::iter::Peekable;
 
 use crate::reader;
 
 // statics
-static KEYWORDS: &[&str] = &["let", "if", "else", "for", "while", "brk", "con"];
+static KEYWORDS: &[&str] = &[
+    "let", "if", "else", "fn", "for", "while", "brk", "con", "ret",
+];
 
 // Tokens structures
 #[derive(Debug, Clone)]
@@ -49,6 +51,7 @@ pub enum TokenType {
     Operation(OperationTokenType),
     Int(i64),
     Float(f64),
+    Comma,
     LineTerm,
     // These two variants signal that something went wrong
     // and the parser should handle them with care
@@ -95,7 +98,7 @@ impl Position {
     }
 }
 
-pub (crate) trait CharOps {
+pub(crate) trait CharOps {
     fn is_separator(&self) -> bool;
 
     fn is_space(&self) -> bool;
@@ -126,9 +129,9 @@ impl CharOps for char {
 /* lifetimes are important here because we need to define
 that the scope of the readable is where the methods are being called. */
 pub(crate) struct Lexer<'a> {
-    pub (crate) input: Peekable<reader::CharReader<'a>>,
-    pub (crate) reading: bool,
-    pub (crate) src: Position,
+    pub(crate) input: Peekable<reader::CharReader<'a>>,
+    pub(crate) reading: bool,
+    pub(crate) src: Position,
 }
 
 impl<'a> Iterator for Lexer<'a> {
@@ -207,7 +210,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub (crate) fn read(&mut self) -> io::Result<Token> {
+    pub(crate) fn read(&mut self) -> io::Result<Token> {
         let result = self.advance_to_next()?;
         if result.is_none() {
             return Ok(Token {
@@ -258,15 +261,18 @@ impl<'a> Lexer<'a> {
                 };
                 Ok(token)
             }
+            ',' => {
+                let token = Token {
+                    value: TokenType::Comma,
+                    source: Source::new_single(self.src),
+                };
+                Ok(token)
+            }
             _ => self.handle_bad_read("Unknown character", self.src),
         }
     }
 
-    fn parse_identifier(
-        &mut self,
-        first: char,
-        starting_position: Position,
-    ) -> io::Result<Token> {
+    fn parse_identifier(&mut self, first: char, starting_position: Position) -> io::Result<Token> {
         let mut identifier = String::from(first);
 
         loop {
@@ -274,7 +280,10 @@ impl<'a> Lexer<'a> {
                 Some(Ok(ch)) if ch.is_word() => identifier.push(self.advance().unwrap()?),
                 Some(Ok(ch)) if ch.is_separator() => break,
                 Some(Ok(_)) => {
-                    return self.handle_bad_peek("Unexpected character in identifier/keyword", starting_position);
+                    return self.handle_bad_peek(
+                        "Unexpected character in identifier/keyword",
+                        starting_position,
+                    );
                 }
                 Some(Err(_)) => return Err(self.advance().unwrap().unwrap_err()),
                 None => break,
@@ -303,7 +312,10 @@ impl<'a> Lexer<'a> {
             match self.input.peek() {
                 Some(Ok('.')) => {
                     if found_dot {
-                        return self.handle_bad_peek("Too many dots in numeric literal", starting_position);
+                        return self.handle_bad_peek(
+                            "Too many dots in numeric literal",
+                            starting_position,
+                        );
                     }
                     s.push(self.advance().unwrap()?);
                     found_dot = true;
@@ -311,7 +323,10 @@ impl<'a> Lexer<'a> {
                 Some(Ok(ch)) if ch.is_digit(10) => s.push(self.advance().unwrap()?),
                 Some(Ok(ch)) if ch.is_separator() => break,
                 Some(Ok(_)) => {
-                    return self.handle_bad_peek("Unexpected character in numeric literal", starting_position);
+                    return self.handle_bad_peek(
+                        "Unexpected character in numeric literal",
+                        starting_position,
+                    );
                 }
                 Some(Err(_)) => return Err(self.advance().unwrap().unwrap_err()),
                 None => break,
@@ -447,7 +462,9 @@ impl<'a> Lexer<'a> {
                     source: Source::new(start, end),
                 })
             }
-            Some(Ok(_)) => self.handle_bad_peek("Incomplete token error - Expected '||' or '|-'", start),
+            Some(Ok(_)) => {
+                self.handle_bad_peek("Incomplete token error - Expected '||' or '|-'", start)
+            }
             _ => panic!("Should not have been called"),
         }
     }

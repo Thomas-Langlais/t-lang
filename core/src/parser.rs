@@ -1,8 +1,12 @@
 use std::io;
 use std::iter::Peekable;
 
+use crate::ast::{
+    get_source, BreakNode, ConditionNode, ContinueNode, FactorNode, ForNode,
+    FunctionDeclarationNode, IfNode, ReturnNode, StatementListNode, StatementNode, SyntaxNode,
+    TermNode, UnaryNode, VariableNode, WhileNode, FunctionInvocationNode,
+};
 use crate::lexer::{CompType, Lexer, LogicType, OperationTokenType, Source, Token, TokenType};
-use crate::ast::{get_source, SyntaxNode, StatementListNode, StatementNode, IfNode, FactorNode, TermNode, WhileNode, ConditionNode, ContinueNode, BreakNode, VariableNode, ForNode, UnaryNode};
 
 pub struct Parser<'a> {
     lexer: Peekable<Lexer<'a>>,
@@ -112,7 +116,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// atom = INT|FLOAT|IDENTIFIER
+    /// atom = INT|FLOAT
+    ///      = IDENTIFIER (LParen expr? (COMMA expr)* RParen)?
     ///      = LParen expr RParen
     fn atom(&mut self) -> Result<SyntaxNode> {
         match self.lexer.peek() {
@@ -129,7 +134,44 @@ impl<'a> Parser<'a> {
                 ..
             })) => {
                 let identifier_token = self.lexer.next().unwrap().unwrap();
-                let source = identifier_token.source;
+                let mut source = identifier_token.source;
+
+                if let Some(Ok(Token {
+                    value: TokenType::LParen('('),
+                    ..
+                })) = self.lexer.peek()
+                {
+                    self.lexer.next();
+                    
+                    let mut arguments = Vec::new();
+                    if !matches!(
+                        self.lexer.peek(),
+                        Some(Ok(Token {
+                            value: TokenType::RParen(')'),
+                            ..
+                        }))
+                    ) {
+                        arguments.push(self.expr()?);
+
+                        while let Some(Ok(Token {
+                            value: TokenType::Comma,
+                            ..
+                        })) = self.lexer.peek()
+                        {
+                            self.lexer.next();
+                            arguments.push(self.expr()?);
+                        }
+                    }
+
+                    source.end = self.expect_and_consume(&TokenType::RParen(')'), "expected a ')'")?.source.end;
+
+                    return Ok(SyntaxNode::FunctionInvocation(FunctionInvocationNode {
+                        identifier_token,
+                        arguments,
+                        source,
+                    }));
+                }
+
                 Ok(SyntaxNode::Variable(VariableNode {
                     identifier_token,
                     expression: None,
@@ -237,6 +279,61 @@ impl<'a> Parser<'a> {
         Ok(SyntaxNode::Statements(StatementListNode {
             statements,
             source,
+        }))
+    }
+
+    /// fn_stmt = KW:FUN IDENTIFIER
+    ///     LParen (expr (COMMA expr)*)? RParen
+    ///     block
+    fn fn_stmt(&mut self) -> Result<SyntaxNode> {
+        let start = self.lexer.next().unwrap().unwrap().source.start;
+        let identifier_token = match self.lexer.peek() {
+            Some(Ok(Token {
+                value: TokenType::Identifier(_),
+                ..
+            })) => self.lexer.next().unwrap().unwrap(),
+            Some(Err(_)) => return Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
+            _ => {
+                return Err(Error::Bad(
+                    "Expected a function name (identifier)",
+                    self.lexer.peek().as_ref().unwrap().as_ref().unwrap().source,
+                ))
+            }
+        };
+
+        self.expect_and_consume(&TokenType::LParen('('), "expected a '('")?;
+
+        let mut arguments = Vec::new();
+        if !matches!(
+            self.lexer.peek(),
+            Some(Ok(Token {
+                value: TokenType::RParen(')'),
+                ..
+            }))
+        ) {
+            arguments.push(self.expr()?);
+
+            while let Some(Ok(Token {
+                value: TokenType::Comma,
+                ..
+            })) = self.lexer.peek()
+            {
+                self.lexer.next();
+                arguments.push(self.expr()?);
+            }
+        }
+
+        self.expect_and_consume(&TokenType::RParen(')'), "expected a ')'")?;
+
+        let block =
+            Box::new(self.expect_and_parse(|p| p.block(), &TokenType::LBlock, "expected |-")?);
+        let end = get_source(&block).end;
+
+        Ok(SyntaxNode::FunctionDeclaration(FunctionDeclarationNode {
+            identifier_token,
+            arguments,
+            block,
+            source: Source::new(start, end),
         }))
     }
 
@@ -465,15 +562,29 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// statement = if_stmt
+    /// statement = fn_stmt
+    ///           = if_stmt
     ///           = for_stmt
     ///           = while_stmt
     ///           = decl_stmt LINETERM
     ///           = KW:CONTINUE LINETERM
     ///           = KW:BREAK LINETERM
+    ///           = KW:RETURN expr? LINETERM
     ///           = expr LINETERM
     fn statement(&mut self) -> Result<SyntaxNode> {
         match self.lexer.peek() {
+            Some(Ok(Token {
+                value: TokenType::Keyword("fn"),
+                ..
+            })) => {
+                let result = self.fn_stmt();
+                if result.is_err() {
+                    self.skip_passed(TokenType::RBlock)?;
+                }
+                let inner = Box::new(result?);
+                let source = get_source(&inner);
+                Ok(SyntaxNode::Statement(StatementNode { inner, source }))
+            }
             Some(Ok(Token {
                 value: TokenType::Keyword("if"),
                 ..
@@ -541,6 +652,34 @@ impl<'a> Parser<'a> {
                 let source = token.source;
                 self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
                 Ok(SyntaxNode::Continue(ContinueNode(token, source)))
+            }
+            Some(Ok(Token {
+                value: TokenType::Keyword("ret"),
+                ..
+            })) => {
+                let token = self.lexer.next().unwrap().unwrap();
+                let mut source = token.source;
+                let mut return_expression = None;
+
+                if !matches!(
+                    self.lexer.peek(),
+                    Some(Ok(Token {
+                        value: TokenType::LineTerm,
+                        ..
+                    }))
+                ) {
+                    return_expression = Some(Box::new(self.expr()?));
+                }
+                source.end = self
+                    .expect_and_consume(&TokenType::LineTerm, "Expected ';'")?
+                    .source
+                    .end;
+
+                Ok(SyntaxNode::Return(ReturnNode {
+                    token,
+                    return_expression,
+                    source,
+                }))
             }
             Some(Ok(_)) => {
                 let result = self.expr();

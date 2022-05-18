@@ -132,6 +132,8 @@ impl<'a> Machine<'a> {
         }
 
         match node {
+            SyntaxNode::FunctionDeclaration(node) => todo!("implement the function declaration execution"),
+            SyntaxNode::FunctionInvocation(node) => todo!("implement the function invocation execution"),
             SyntaxNode::If(node) => self.interpret_if_node(node, context).await,
             SyntaxNode::Statements(node) => self.interpret_statement_list_node(node, context).await,
             SyntaxNode::Statement(node) => self.interpret_statement_node(node, context).await,
@@ -139,6 +141,7 @@ impl<'a> Machine<'a> {
             SyntaxNode::While(node) => self.interpret_while_node(node, context).await,
             SyntaxNode::Continue(_) => Ok(InterpretedType::Continue),
             SyntaxNode::Break(_) => Ok(InterpretedType::Break),
+            SyntaxNode::Return(node) => todo!("implement the return statement execution"),
             SyntaxNode::Variable(node) => self.interpret_variable_node(node, context).await,
             SyntaxNode::Factor(node) => self.interpret_factor_node(node, context).await,
             SyntaxNode::Unary(node) => self.interpret_unary_node(node, context).await,
@@ -397,13 +400,14 @@ impl Machine<'_> {
         while self.stop_reason.is_none() {
             match parser.parse_one()? {
                 Some(node) => {
-                    let mut context = ExecutionContext::new(&self.symbols);
-                    last_result = match self.interpret_node(&node, &mut context).await {
-                        Ok(result) => Some(result),
-                        Err(InterpreterError::Runtime(err)) => return Err(Error::RuntimeError(err, context.source)),
-                        // this is a shim to avoid handling stopped errors
-                        _ => continue,
-                    };
+                    println!("{:#?}", node);
+                    // let mut context = ExecutionContext::new(&self.symbols);
+                    // last_result = match self.interpret_node(&node, &mut context).await {
+                    //     Ok(result) => Some(result),
+                    //     Err(InterpreterError::Runtime(err)) => return Err(Error::RuntimeError(err, context.source)),
+                    //     // this is a shim to avoid handling stopped errors
+                    //     _ => continue,
+                    // };
                 }
                 None => break,
             }

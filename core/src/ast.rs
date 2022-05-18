@@ -9,6 +9,21 @@ pub struct VariableNode {
 }
 
 #[derive(Debug)]
+pub struct FunctionDeclarationNode {
+    pub identifier_token: Token,
+    pub arguments: Vec<SyntaxNode>,
+    pub block: Box<SyntaxNode>,
+    pub source: Source,
+}
+
+#[derive(Debug)]
+pub struct FunctionInvocationNode {
+    pub identifier_token: Token,
+    pub arguments: Vec<SyntaxNode>,
+    pub source: Source,
+}
+
+#[derive(Debug)]
 pub struct FactorNode {
     pub token: Token,
     pub source: Source,
@@ -78,7 +93,16 @@ pub struct ContinueNode(pub Token, pub Source);
 pub struct BreakNode(pub Token, pub Source);
 
 #[derive(Debug)]
+pub struct ReturnNode {
+    pub token: Token,
+    pub return_expression: Option<Box<SyntaxNode>>,
+    pub source: Source,
+}
+
+#[derive(Debug)]
 pub enum SyntaxNode {
+    FunctionDeclaration(FunctionDeclarationNode),
+    FunctionInvocation(FunctionInvocationNode),
     If(IfNode),
     Statements(StatementListNode),
     Statement(StatementNode),
@@ -86,6 +110,7 @@ pub enum SyntaxNode {
     While(WhileNode),
     Continue(ContinueNode),
     Break(BreakNode),
+    Return(ReturnNode),
     Variable(VariableNode),
     Factor(FactorNode),
     Unary(UnaryNode),
@@ -94,6 +119,8 @@ pub enum SyntaxNode {
 
 pub (crate) fn get_source(node: &SyntaxNode) -> Source {
     match node {
+        SyntaxNode::FunctionDeclaration(node) => node.source,
+        SyntaxNode::FunctionInvocation(node) => node.source,
         SyntaxNode::If(node) => node.source,
         SyntaxNode::Statements(node) => node.source,
         SyntaxNode::Statement(node) => node.source,
@@ -101,6 +128,7 @@ pub (crate) fn get_source(node: &SyntaxNode) -> Source {
         SyntaxNode::While(node) => node.source,
         SyntaxNode::Continue(ContinueNode(_, source)) => *source,
         SyntaxNode::Break(BreakNode(_, source)) => *source,
+        SyntaxNode::Return(node) => node.source,
         SyntaxNode::Variable(node) => node.source,
         SyntaxNode::Factor(node) => node.source,
         SyntaxNode::Unary(node) => node.source,

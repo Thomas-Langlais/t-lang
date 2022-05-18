@@ -3,8 +3,8 @@ use std::iter::Peekable;
 
 use crate::ast::{
     get_source, BreakNode, ConditionNode, ContinueNode, FactorNode, ForNode,
-    FunctionDeclarationNode, IfNode, ReturnNode, StatementListNode, StatementNode, SyntaxNode,
-    TermNode, UnaryNode, VariableNode, WhileNode, FunctionInvocationNode,
+    FunctionDeclarationNode, FunctionInvocationNode, IfNode, ReturnNode, StatementListNode,
+    StatementNode, SyntaxNode, TermNode, UnaryNode, VariableNode, WhileNode,
 };
 use crate::lexer::{CompType, Lexer, LogicType, OperationTokenType, Source, Token, TokenType};
 
@@ -142,7 +142,7 @@ impl<'a> Parser<'a> {
                 })) = self.lexer.peek()
                 {
                     self.lexer.next();
-                    
+
                     let mut arguments = Vec::new();
                     if !matches!(
                         self.lexer.peek(),
@@ -163,7 +163,10 @@ impl<'a> Parser<'a> {
                         }
                     }
 
-                    source.end = self.expect_and_consume(&TokenType::RParen(')'), "expected a ')'")?.source.end;
+                    source.end = self
+                        .expect_and_consume(&TokenType::RParen(')'), "expected a ')'")?
+                        .source
+                        .end;
 
                     return Ok(SyntaxNode::FunctionInvocation(FunctionInvocationNode {
                         identifier_token,
@@ -628,11 +631,14 @@ impl<'a> Parser<'a> {
                 let result = self.decl_stmt();
                 if result.is_err() {
                     self.skip_passed(TokenType::LineTerm)?;
-                } else {
-                    self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
                 }
                 let inner = Box::new(result?);
-                let source = get_source(&inner);
+                let start = get_source(&inner).start;
+                let end = self
+                    .expect_and_consume(&TokenType::LineTerm, "Expected ';'")?
+                    .source
+                    .end;
+                let source = Source::new(start, end);
                 Ok(SyntaxNode::Statement(StatementNode { inner, source }))
             }
             Some(Ok(Token {
@@ -640,8 +646,12 @@ impl<'a> Parser<'a> {
                 ..
             })) => {
                 let token = self.lexer.next().unwrap().unwrap();
-                let source = token.source;
-                self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
+                let start = token.source.start;
+                let end = self
+                    .expect_and_consume(&TokenType::LineTerm, "Expected ';'")?
+                    .source
+                    .end;
+                let source = Source::new(start, end);
                 Ok(SyntaxNode::Break(BreakNode(token, source)))
             }
             Some(Ok(Token {
@@ -649,8 +659,12 @@ impl<'a> Parser<'a> {
                 ..
             })) => {
                 let token = self.lexer.next().unwrap().unwrap();
-                let source = token.source;
-                self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
+                let start = token.source.start;
+                let end = self
+                    .expect_and_consume(&TokenType::LineTerm, "Expected ';'")?
+                    .source
+                    .end;
+                let source = Source::new(start, end);
                 Ok(SyntaxNode::Continue(ContinueNode(token, source)))
             }
             Some(Ok(Token {
@@ -685,11 +699,14 @@ impl<'a> Parser<'a> {
                 let result = self.expr();
                 if result.is_err() {
                     self.skip_passed(TokenType::LineTerm)?;
-                } else {
-                    self.expect_and_consume(&TokenType::LineTerm, "Expected ';'")?;
                 }
                 let inner = Box::new(result?);
-                let source = get_source(&inner);
+                let start = get_source(&inner).start;
+                let end = self
+                    .expect_and_consume(&TokenType::LineTerm, "Expected ';'")?
+                    .source
+                    .end;
+                let source = Source::new(start, end);
                 Ok(SyntaxNode::Statement(StatementNode { inner, source }))
             }
             Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),

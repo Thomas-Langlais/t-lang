@@ -1,5 +1,12 @@
 use crate::lexer::{Token, Source};
 
+#[derive(Debug, Clone, Copy)]
+pub enum Value {
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+}
+
 #[derive(Debug)]
 pub struct VariableNode {
     pub identifier_token: Token,

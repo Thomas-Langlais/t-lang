@@ -6,16 +6,14 @@ use async_recursion::async_recursion;
 
 use crate::ast::{
     FactorNode, ForNode, IfNode, StatementListNode, StatementNode, SyntaxNode, TermNode, UnaryNode,
-    VariableNode, WhileNode,
+    VariableNode, WhileNode, Value
 };
 use crate::lexer::{OperationTokenType, Source, TokenType};
 use crate::parser::{Error as ParserError, Parser};
-use crate::symbol_table::{SymbolEntry, SymbolTable, SymbolValue};
+use crate::symbol_table::{SymbolEntry, SymbolTable, Symbol};
 
 pub enum InterpretedType {
-    Float(f64),
-    Int(i64),
-    Bool(bool),
+    Value(Value),
     Continue,
     Break,
 }
@@ -49,9 +47,9 @@ pub type ExecResult<T> = std::result::Result<T, Error>;
 impl Display for InterpretedType {
     fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
         match self {
-            InterpretedType::Int(int) => write!(f, "{}", int),
-            InterpretedType::Float(float) => write!(f, "{}", float),
-            InterpretedType::Bool(b) => write!(f, "{}", b),
+            InterpretedType::Value(Value::Int(int)) => write!(f, "{}", int),
+            InterpretedType::Value(Value::Float(float)) => write!(f, "{}", float),
+            InterpretedType::Value(Value::Bool(b)) => write!(f, "{}", b),
             InterpretedType::Break => write!(f, "brk"),
             InterpretedType::Continue => write!(f, "con"),
         }
@@ -81,30 +79,26 @@ impl<'a> ExecutionContext<'a> {
 impl From<InterpretedType> for bool {
     fn from(value: InterpretedType) -> Self {
         match value {
-            InterpretedType::Float(float) => float != 0.0,
-            InterpretedType::Int(int) => int != 0,
-            InterpretedType::Bool(b) => b,
+            InterpretedType::Value(Value::Float(float)) => float != 0.0,
+            InterpretedType::Value(Value::Int(int)) => int != 0,
+            InterpretedType::Value(Value::Bool(b)) => b,
             _ => panic!("handle con and brk conditions"),
         }
     }
 }
 
-impl<'a> From<&InterpretedType> for SymbolValue {
+impl<'a> From<&InterpretedType> for Symbol {
     fn from(val: &InterpretedType) -> Self {
         match val {
-            InterpretedType::Int(n) => SymbolValue::Int(*n),
-            InterpretedType::Float(n) => SymbolValue::Float(*n),
-            InterpretedType::Bool(n) => SymbolValue::Bool(*n),
+            &InterpretedType::Value(value) => Symbol::Value(value),
             _ => panic!("handle con and brk conditions"),
         }
     }
 }
-impl From<SymbolValue> for InterpretedType {
-    fn from(val: SymbolValue) -> Self {
+impl From<Symbol> for InterpretedType {
+    fn from(val: Symbol) -> Self {
         match val {
-            SymbolValue::Int(n) => InterpretedType::Int(n),
-            SymbolValue::Float(n) => InterpretedType::Float(n),
-            SymbolValue::Bool(n) => InterpretedType::Bool(n),
+            Symbol::Value(value) => InterpretedType::Value(value),
         }
     }
 }
@@ -156,7 +150,7 @@ impl<'a> Machine<'a> {
     ) -> Result {
         // compile complains about last_result being unitialized without the assignment
         // the parser has to output at least one statement, so let's a temp value
-        let mut last_result = InterpretedType::Int(0);
+        let mut last_result = InterpretedType::Value(Value::Int(0));
         context.visit(node.source);
 
         for statement in &node.statements {
@@ -209,7 +203,7 @@ impl<'a> Machine<'a> {
             }
         }
 
-        Ok(InterpretedType::Int(0))
+        Ok(InterpretedType::Value(Value::Int(0)))
     }
 
     async fn interpret_while_node(
@@ -235,7 +229,7 @@ impl<'a> Machine<'a> {
             }
         }
 
-        Ok(InterpretedType::Int(0))
+        Ok(InterpretedType::Value(Value::Int(0)))
     }
 
     async fn interpret_if_node(&self, node: &IfNode, context: &mut ExecutionContext<'_>) -> Result {
@@ -253,7 +247,7 @@ impl<'a> Machine<'a> {
             return self.interpret_node(&else_case, context).await;
         }
 
-        Ok(InterpretedType::Int(0))
+        Ok(InterpretedType::Value(Value::Int(0)))
     }
 
     async fn interpret_variable_node(
@@ -275,7 +269,7 @@ impl<'a> Machine<'a> {
                     context.visit(node.source);
                     if let Err(err) = context
                         .symbol_table
-                        .set(identifier, SymbolValue::from(&result))
+                        .set(identifier, Symbol::from(&result))
                     {
                         return Err(err.into());
                     }
@@ -353,8 +347,8 @@ impl<'a> Machine<'a> {
         context.visit(node.source);
 
         match node.token.value {
-            TokenType::Int(int) => Ok(InterpretedType::Int(int)),
-            TokenType::Float(float) => Ok(InterpretedType::Float(float)),
+            TokenType::Int(int) => Ok(InterpretedType::Value(Value::Int(int))),
+            TokenType::Float(float) => Ok(InterpretedType::Value(Value::Float(float))),
             _ => panic!("A factor should only be a int or a float"),
         }
     }
@@ -369,14 +363,14 @@ impl Machine<'_> {
                 (
                     String::from("true"),
                     SymbolEntry {
-                        value: SymbolValue::Bool(true),
+                        value: Symbol::Value(Value::Bool(true)),
                         is_constant: true,
                     },
                 ),
                 (
                     String::from("false"),
                     SymbolEntry {
-                        value: SymbolValue::Bool(false),
+                        value: Symbol::Value(Value::Bool(false)),
                         is_constant: true,
                     },
                 ),
@@ -400,14 +394,13 @@ impl Machine<'_> {
         while self.stop_reason.is_none() {
             match parser.parse_one()? {
                 Some(node) => {
-                    println!("{:#?}", node);
-                    // let mut context = ExecutionContext::new(&self.symbols);
-                    // last_result = match self.interpret_node(&node, &mut context).await {
-                    //     Ok(result) => Some(result),
-                    //     Err(InterpreterError::Runtime(err)) => return Err(Error::RuntimeError(err, context.source)),
-                    //     // this is a shim to avoid handling stopped errors
-                    //     _ => continue,
-                    // };
+                    let mut context = ExecutionContext::new(&self.symbols);
+                    last_result = match self.interpret_node(&node, &mut context).await {
+                        Ok(result) => Some(result),
+                        Err(InterpreterError::Runtime(err)) => return Err(Error::RuntimeError(err, context.source)),
+                        // this is a shim to avoid handling stopped errors
+                        _ => continue,
+                    };
                 }
                 None => break,
             }

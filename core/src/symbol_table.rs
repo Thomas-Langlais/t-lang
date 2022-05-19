@@ -1,18 +1,16 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use crate::exec::{ExecutionContext, RTError};
+use crate::{exec::{ExecutionContext, RTError}, ast::Value};
 
 #[derive(Debug, Clone, Copy)]
-pub enum SymbolValue {
-    Int(i64),
-    Float(f64),
-    Bool(bool)
+pub enum Symbol {
+    Value(Value)
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct SymbolEntry {
-    pub value: SymbolValue,
+    pub value: Symbol,
     pub is_constant: bool,
 }
 
@@ -32,7 +30,7 @@ impl<'a> SymbolTable<'a> {
         }
     }
 
-    pub fn get(&self, identifier: &str) -> Option<SymbolValue> {
+    pub fn get(&self, identifier: &str) -> Option<Symbol> {
         let symbols = self.symbols.borrow();
         if let Some(value) = symbols.get(identifier) {
             return Some(value.value);
@@ -49,7 +47,7 @@ impl<'a> SymbolTable<'a> {
         None
     }
 
-    pub fn set(&self, identifier: &str, value: SymbolValue) -> Result<(), RTError> {
+    pub fn set(&self, identifier: &str, value: Symbol) -> Result<(), RTError> {
         let mut symbols = self.symbols.borrow_mut();
         
         let symbol_entry = match symbols.get(identifier) {

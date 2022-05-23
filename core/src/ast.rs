@@ -7,7 +7,7 @@ pub enum Value {
     Bool(bool),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VariableNode {
     pub identifier: String,
     pub expression: Option<Box<SyntaxNode>>,
@@ -15,7 +15,7 @@ pub struct VariableNode {
     pub source: Source,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunctionDeclarationNode {
     pub identifier: String,
     pub arguments: Vec<SyntaxNode>,
@@ -23,27 +23,27 @@ pub struct FunctionDeclarationNode {
     pub source: Source,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunctionInvocationNode {
     pub identifier: String,
     pub arguments: Vec<SyntaxNode>,
     pub source: Source,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FactorNode {
     pub token: Token,
     pub source: Source,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UnaryNode {
     pub op_token: Token,
     pub node: Box<SyntaxNode>,
     pub source: Source,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TermNode {
     pub op_token: Token,
     pub left_node: Box<SyntaxNode>,
@@ -51,33 +51,33 @@ pub struct TermNode {
     pub source: Source,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConditionNode {
     pub condition: Box<SyntaxNode>,
     pub statements: Box<SyntaxNode>,
     pub source: Source,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IfNode {
     pub if_nodes: Vec<ConditionNode>,
     pub else_node: Option<Box<SyntaxNode>>,
     pub source: Source,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StatementNode {
     pub inner: Box<SyntaxNode>,
     pub source: Source,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StatementListNode {
     pub statements: Vec<SyntaxNode>,
     pub source: Source,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ForNode {
     pub declaration: Option<Box<SyntaxNode>>,
     pub condition: Option<Box<SyntaxNode>>,
@@ -86,27 +86,27 @@ pub struct ForNode {
     pub source: Source,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WhileNode {
     pub condition: Box<SyntaxNode>,
     pub block: Box<SyntaxNode>,
     pub source: Source,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ContinueNode(pub Token, pub Source);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BreakNode(pub Token, pub Source);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ReturnNode {
     pub token: Token,
     pub return_expression: Option<Box<SyntaxNode>>,
     pub source: Source,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SyntaxNode {
     FunctionDeclaration(FunctionDeclarationNode),
     FunctionInvocation(FunctionInvocationNode),

@@ -9,7 +9,7 @@ pub enum Value {
 
 #[derive(Debug)]
 pub struct VariableNode {
-    pub identifier_token: Token,
+    pub identifier: String,
     pub expression: Option<Box<SyntaxNode>>,
     pub assign: bool,
     pub source: Source,
@@ -17,7 +17,7 @@ pub struct VariableNode {
 
 #[derive(Debug)]
 pub struct FunctionDeclarationNode {
-    pub identifier_token: Token,
+    pub identifier: String,
     pub arguments: Vec<SyntaxNode>,
     pub block: Box<SyntaxNode>,
     pub source: Source,
@@ -25,7 +25,7 @@ pub struct FunctionDeclarationNode {
 
 #[derive(Debug)]
 pub struct FunctionInvocationNode {
-    pub identifier_token: Token,
+    pub identifier: String,
     pub arguments: Vec<SyntaxNode>,
     pub source: Source,
 }

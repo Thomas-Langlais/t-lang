@@ -257,39 +257,34 @@ impl<'a> Machine<'a> {
     ) -> Result {
         context.visit(node.source);
 
-        match &node.identifier_token.value {
-            TokenType::Identifier(identifier) => {
-                if node.assign {
-                    let expression = match &node.expression {
-                        Some(expr) => expr,
-                        None => unreachable!("There should always be an expression"),
-                    };
-                    let result = self.interpret_node(expression, context).await?;
+        if node.assign {
+            let expression = match &node.expression {
+                Some(expr) => expr,
+                None => unreachable!("There should always be an expression"),
+            };
+            let result = self.interpret_node(expression, context).await?;
 
-                    context.visit(node.source);
-                    if let Err(err) = context
-                        .symbol_table
-                        .set(identifier, Symbol::from(&result))
-                    {
-                        return Err(err.into());
-                    }
-
-                    Ok(result)
-                } else {
-                    context.visit(node.source);
-                    let value_result = context.symbol_table.get(identifier);
-                    if value_result.is_none() {
-                        return Err(RTError {
-                            name: "Symbol not found",
-                            details: "The variable does not exist in the current context",
-                        }.into());
-                    }
-
-                    let value = unsafe { value_result.unwrap_unchecked() };
-                    Ok(InterpretedType::from(value))
-                }
+            context.visit(node.source);
+            if let Err(err) = context
+                .symbol_table
+                .set(&node.identifier, Symbol::from(&result))
+            {
+                return Err(err.into());
             }
-            _ => panic!("A variable node can only have an identifier token"),
+
+            Ok(result)
+        } else {
+            context.visit(node.source);
+            let value_result = context.symbol_table.get(&node.identifier);
+            if value_result.is_none() {
+                return Err(RTError {
+                    name: "Symbol not found",
+                    details: "The variable does not exist in the current context",
+                }.into());
+            }
+
+            let value = unsafe { value_result.unwrap_unchecked() };
+            Ok(InterpretedType::from(value))
         }
     }
 

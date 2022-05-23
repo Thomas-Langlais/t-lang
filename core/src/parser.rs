@@ -130,11 +130,11 @@ impl<'a> Parser<'a> {
                 Ok(SyntaxNode::Factor(FactorNode { token, source }))
             }
             Some(Ok(Token {
-                value: TokenType::Identifier(_),
+                value: TokenType::Identifier(ident),
                 ..
             })) => {
-                let identifier_token = self.lexer.next().unwrap().unwrap();
-                let mut source = identifier_token.source;
+                let identifier = ident.clone();
+                let mut source = self.lexer.next().unwrap().unwrap().source;
 
                 if let Some(Ok(Token {
                     value: TokenType::LParen('('),
@@ -169,14 +169,14 @@ impl<'a> Parser<'a> {
                         .end;
 
                     return Ok(SyntaxNode::FunctionInvocation(FunctionInvocationNode {
-                        identifier_token,
+                        identifier,
                         arguments,
                         source,
                     }));
                 }
 
                 Ok(SyntaxNode::Variable(VariableNode {
-                    identifier_token,
+                    identifier,
                     expression: None,
                     assign: false,
                     source,
@@ -290,11 +290,15 @@ impl<'a> Parser<'a> {
     ///     block
     fn fn_stmt(&mut self) -> Result<SyntaxNode> {
         let start = self.lexer.next().unwrap().unwrap().source.start;
-        let identifier_token = match self.lexer.peek() {
+        let identifier = match self.lexer.peek() {
             Some(Ok(Token {
-                value: TokenType::Identifier(_),
+                value: TokenType::Identifier(ident),
                 ..
-            })) => self.lexer.next().unwrap().unwrap(),
+            })) => {
+                let identifier = ident.clone();
+                self.lexer.next().unwrap().unwrap();
+                identifier
+            }
             Some(Err(_)) => return Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
             _ => {
                 return Err(Error::Bad(
@@ -333,7 +337,7 @@ impl<'a> Parser<'a> {
         let end = get_source(&block).end;
 
         Ok(SyntaxNode::FunctionDeclaration(FunctionDeclarationNode {
-            identifier_token,
+            identifier,
             arguments,
             block,
             source: Source::new(start, end),
@@ -513,11 +517,15 @@ impl<'a> Parser<'a> {
     /// decl_stmt = KW:LET IDENTIFIER EQ expr
     fn decl_stmt(&mut self) -> Result<SyntaxNode> {
         let start = self.lexer.next().unwrap().unwrap().source.start;
-        let identifier_token = match self.lexer.peek() {
+        let identifier = match self.lexer.peek() {
             Some(Ok(Token {
-                value: TokenType::Identifier(_),
+                value: TokenType::Identifier(ident),
                 ..
-            })) => self.lexer.next().unwrap().unwrap(),
+            })) => {
+                let identifier = ident.clone();
+                self.lexer.next().unwrap().unwrap();
+                identifier
+            }
             Some(Err(_)) => return Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
             Some(Ok(Token {
                 value: TokenType::Bad(msg, source),
@@ -546,7 +554,7 @@ impl<'a> Parser<'a> {
         let source = Source::new(start, get_source(&expr).end);
         let expression = Some(Box::new(expr));
         Ok(SyntaxNode::Variable(VariableNode {
-            identifier_token,
+            identifier,
             expression,
             assign: true,
             source,

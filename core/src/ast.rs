@@ -18,7 +18,7 @@ pub struct VariableNode {
 #[derive(Debug, Clone)]
 pub struct FunctionDeclarationNode {
     pub identifier: String,
-    pub arguments: Vec<SyntaxNode>,
+    pub arguments: Vec<String>,
     pub block: Box<SyntaxNode>,
     pub source: Source,
 }

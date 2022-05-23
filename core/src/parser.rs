@@ -97,6 +97,29 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn consume_identifier(
+        &mut self,
+        error: &'static str
+    ) -> Result<String> {
+        match self.lexer.peek() {
+            Some(Ok(Token {
+                value: TokenType::Identifier(ident),
+                ..
+            })) => {
+                let identifier = ident.clone();
+                self.lexer.next().unwrap().unwrap();
+                Ok(identifier)
+            }
+            Some(Err(_)) => Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
+            _ => {
+                Err(Error::Bad(
+                    error,
+                    self.lexer.peek().as_ref().unwrap().as_ref().unwrap().source,
+                ))
+            }
+        }
+    }
+
     fn expect_and_parse<F>(
         &mut self,
         parse: F,
@@ -286,7 +309,7 @@ impl<'a> Parser<'a> {
     }
 
     /// fn_stmt = KW:FUN IDENTIFIER
-    ///     LParen (expr (COMMA expr)*)? RParen
+    ///     LParen (IDENTIFIER (COMMA IDENTIFIER)*)? RParen
     ///     block
     fn fn_stmt(&mut self) -> Result<SyntaxNode> {
         let start = self.lexer.next().unwrap().unwrap().source.start;
@@ -302,7 +325,7 @@ impl<'a> Parser<'a> {
             Some(Err(_)) => return Err(Error::Io(self.lexer.next().unwrap().unwrap_err())),
             _ => {
                 return Err(Error::Bad(
-                    "Expected a function name (identifier)",
+                    "Expected a function name identifier",
                     self.lexer.peek().as_ref().unwrap().as_ref().unwrap().source,
                 ))
             }
@@ -318,7 +341,8 @@ impl<'a> Parser<'a> {
                 ..
             }))
         ) {
-            arguments.push(self.expr()?);
+            let arg = self.consume_identifier("Expected a function argument identifier")?;
+            arguments.push(arg);
 
             while let Some(Ok(Token {
                 value: TokenType::Comma,
@@ -326,7 +350,8 @@ impl<'a> Parser<'a> {
             })) = self.lexer.peek()
             {
                 self.lexer.next();
-                arguments.push(self.expr()?);
+                let arg = self.consume_identifier("Expected a function argument identifier")?;
+                arguments.push(arg);
             }
         }
 

@@ -18,7 +18,7 @@ statement  = fn_stmt
            = expr LINETERM
 
 fn_stmt    = KW:FUN IDENTIFIER
-              LParen (expr (COMMA expr)*)? RParen
+              LParen (IDENTIFIER (COMMA IDENTIFIER)*)? RParen
               block
 
 if_stmt    = KW:IF expr block

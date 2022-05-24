@@ -270,7 +270,7 @@ impl PartialOrd for InterpretedType {
     }
 }
 
-impl Machine<'_> {
+impl Machine {
     pub(crate) async fn unary_arith_op(&self, input: Result, arith_type: char) -> Result {
         match arith_type {
             '+' => input,

@@ -5,12 +5,12 @@ use std::io;
 use async_recursion::async_recursion;
 
 use crate::ast::{
-    FactorNode, ForNode, IfNode, StatementListNode, StatementNode, SyntaxNode, TermNode, UnaryNode,
-    VariableNode, WhileNode, Value
+    FactorNode, ForNode, FunctionDeclarationNode, IfNode, StatementListNode, StatementNode,
+    SyntaxNode, TermNode, UnaryNode, Value, VariableNode, WhileNode,
 };
 use crate::lexer::{OperationTokenType, Source, TokenType};
 use crate::parser::{Error as ParserError, Parser};
-use crate::symbol_table::{SymbolEntry, SymbolTable, Symbol};
+use crate::symbol_table::{Symbol, SymbolEntry, SymbolTable};
 
 pub enum InterpretedType {
     Value(Value),
@@ -32,7 +32,7 @@ pub enum Error {
 
 pub enum InterpreterError {
     Runtime(RTError),
-    Stopped
+    Stopped,
 }
 
 impl From<RTError> for InterpreterError {
@@ -58,12 +58,12 @@ impl Display for InterpretedType {
 
 pub(crate) struct ExecutionContext<'a> {
     pub(crate) source: Source,
-    pub(crate) symbol_table: &'a SymbolTable<'a>,
+    pub(crate) symbol_table: SymbolTable,
     pub(crate) parent_context: Option<&'a ExecutionContext<'a>>,
 }
 
 impl<'a> ExecutionContext<'a> {
-    pub fn new(symbol_table: &'a SymbolTable<'a>) -> ExecutionContext<'a> {
+    pub fn new(symbol_table: SymbolTable) -> ExecutionContext<'a> {
         ExecutionContext {
             source: Source::default(),
             symbol_table,
@@ -99,6 +99,7 @@ impl From<Symbol> for InterpretedType {
     fn from(val: Symbol) -> Self {
         match val {
             Symbol::Value(value) => InterpretedType::Value(value),
+            _ => panic!("handle con and brk conditions"),
         }
     }
 }
@@ -109,12 +110,12 @@ impl From<ParserError> for Error {
     }
 }
 
-pub struct Machine<'a> {
+pub struct Machine {
     stop_reason: Option<u8>,
-    symbols: SymbolTable<'a>,
+    symbols: SymbolTable,
 }
 
-impl<'a> Machine<'a> {
+impl Machine {
     #[async_recursion(?Send)]
     async fn interpret_node(
         &self,
@@ -126,8 +127,12 @@ impl<'a> Machine<'a> {
         }
 
         match node {
-            SyntaxNode::FunctionDeclaration(node) => todo!("implement the function declaration execution"),
-            SyntaxNode::FunctionInvocation(node) => todo!("implement the function invocation execution"),
+            SyntaxNode::FunctionDeclaration(node) => {
+                self.interpret_function_declaration(node, context).await
+            }
+            SyntaxNode::FunctionInvocation(node) => {
+                todo!("implement the function invocation execution")
+            }
             SyntaxNode::If(node) => self.interpret_if_node(node, context).await,
             SyntaxNode::Statements(node) => self.interpret_statement_list_node(node, context).await,
             SyntaxNode::Statement(node) => self.interpret_statement_node(node, context).await,
@@ -173,6 +178,21 @@ impl<'a> Machine<'a> {
     ) -> Result {
         context.visit(node.source);
         self.interpret_node(&node.inner, context).await
+    }
+
+    async fn interpret_function_declaration(
+        &self,
+        node: &FunctionDeclarationNode,
+        context: &mut ExecutionContext<'_>,
+    ) -> Result {
+        context.visit(node.source);
+        if let Err(err) = context
+            .symbol_table
+            .set(&node.identifier, Symbol::Function(node.clone()))
+        {
+            return Err(err.into());
+        }
+        Ok(InterpretedType::Value(Value::Int(1)))
     }
 
     async fn interpret_for_node(
@@ -275,16 +295,19 @@ impl<'a> Machine<'a> {
             Ok(result)
         } else {
             context.visit(node.source);
-            let value_result = context.symbol_table.get(&node.identifier);
-            if value_result.is_none() {
-                return Err(RTError {
+            let value = match context.symbol_table.get(&node.identifier) {
+                Some(&Symbol::Value(value)) => value,
+                Some(_) => return Err(RTError {
+                    name: "Symbol mismatch",
+                    details: "The grammar does not allow functions to be assigned to vars"
+                }.into()),
+                None => return Err(RTError {
                     name: "Symbol not found",
                     details: "The variable does not exist in the current context",
-                }.into());
-            }
-
-            let value = unsafe { value_result.unwrap_unchecked() };
-            Ok(InterpretedType::from(value))
+                }
+                .into())
+            };
+            Ok(InterpretedType::Value(value))
         }
     }
 
@@ -349,7 +372,7 @@ impl<'a> Machine<'a> {
     }
 }
 
-impl Machine<'_> {
+impl Machine {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
@@ -389,10 +412,17 @@ impl Machine<'_> {
         while self.stop_reason.is_none() {
             match parser.parse_one()? {
                 Some(node) => {
-                    let mut context = ExecutionContext::new(&self.symbols);
+                    let mut context = ExecutionContext::new(self.symbols.clone());
                     last_result = match self.interpret_node(&node, &mut context).await {
-                        Ok(result) => Some(result),
-                        Err(InterpreterError::Runtime(err)) => return Err(Error::RuntimeError(err, context.source)),
+                        Ok(result) => {
+                            // because we cloned the table, we need to set the
+                            // table from the root context to the machine
+                            self.symbols = context.symbol_table;
+                            Some(result)
+                        }
+                        Err(InterpreterError::Runtime(err)) => {
+                            return Err(Error::RuntimeError(err, context.source))
+                        }
                         // this is a shim to avoid handling stopped errors
                         _ => continue,
                     };

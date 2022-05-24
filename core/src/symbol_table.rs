@@ -4,6 +4,7 @@ use crate::{exec::RTError, ast::{Value, FunctionDeclarationNode}};
 
 #[derive(Debug, Clone)]
 pub enum Symbol {
+    Nil,
     Value(Value),
     Function(FunctionDeclarationNode),
 }

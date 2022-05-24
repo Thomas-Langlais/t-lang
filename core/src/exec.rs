@@ -14,6 +14,7 @@ use crate::symbol_table::{Symbol, SymbolEntry, SymbolTable};
 
 pub enum InterpretedType {
     Value(Value),
+    Nil,
     Continue,
     Break,
 }
@@ -47,6 +48,7 @@ pub type ExecResult<T> = std::result::Result<T, Error>;
 impl Display for InterpretedType {
     fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
         match self {
+            InterpretedType::Nil => write!(f, "nil"),
             InterpretedType::Value(Value::Int(int)) => write!(f, "{}", int),
             InterpretedType::Value(Value::Float(float)) => write!(f, "{}", float),
             InterpretedType::Value(Value::Bool(b)) => write!(f, "{}", b),
@@ -91,6 +93,7 @@ impl<'a> From<&InterpretedType> for Symbol {
     fn from(val: &InterpretedType) -> Self {
         match val {
             &InterpretedType::Value(value) => Symbol::Value(value),
+            &InterpretedType::Nil => Symbol::Nil,
             _ => panic!("handle con and brk conditions"),
         }
     }
@@ -99,6 +102,7 @@ impl From<Symbol> for InterpretedType {
     fn from(val: Symbol) -> Self {
         match val {
             Symbol::Value(value) => InterpretedType::Value(value),
+            Symbol::Nil => InterpretedType::Nil,
             _ => panic!("handle con and brk conditions"),
         }
     }
@@ -155,7 +159,7 @@ impl Machine {
     ) -> Result {
         // compile complains about last_result being unitialized without the assignment
         // the parser has to output at least one statement, so let's a temp value
-        let mut last_result = InterpretedType::Value(Value::Int(0));
+        let mut last_result = InterpretedType::Nil;
         context.visit(node.source);
 
         for statement in &node.statements {
@@ -192,7 +196,7 @@ impl Machine {
         {
             return Err(err.into());
         }
-        Ok(InterpretedType::Value(Value::Int(1)))
+        Ok(InterpretedType::Nil)
     }
 
     async fn interpret_for_node(
@@ -223,7 +227,7 @@ impl Machine {
             }
         }
 
-        Ok(InterpretedType::Value(Value::Int(0)))
+        Ok(InterpretedType::Nil)
     }
 
     async fn interpret_while_node(
@@ -249,7 +253,7 @@ impl Machine {
             }
         }
 
-        Ok(InterpretedType::Value(Value::Int(0)))
+        Ok(InterpretedType::Nil)
     }
 
     async fn interpret_if_node(&self, node: &IfNode, context: &mut ExecutionContext<'_>) -> Result {
@@ -267,7 +271,7 @@ impl Machine {
             return self.interpret_node(&else_case, context).await;
         }
 
-        Ok(InterpretedType::Value(Value::Int(0)))
+        Ok(InterpretedType::Nil)
     }
 
     async fn interpret_variable_node(
@@ -392,6 +396,13 @@ impl Machine {
                         is_constant: true,
                     },
                 ),
+                (
+                    String::from("nil"),
+                    SymbolEntry {
+                        value: Symbol::Nil,
+                        is_constant: true
+                    }
+                )
             ])),
         }
     }
@@ -413,7 +424,7 @@ impl Machine {
             match parser.parse_one()? {
                 Some(node) => {
                     let mut context = ExecutionContext::new(self.symbols.clone());
-                    last_result = match self.interpret_node(&node, &mut context).await {
+                    let result = match self.interpret_node(&node, &mut context).await {
                         Ok(result) => {
                             // because we cloned the table, we need to set the
                             // table from the root context to the machine
@@ -425,6 +436,11 @@ impl Machine {
                         }
                         // this is a shim to avoid handling stopped errors
                         _ => continue,
+                    };
+
+                    last_result = match result {
+                        None | Some(InterpretedType::Nil) => None,
+                        Some(output) => Some(output), 
                     };
                 }
                 None => break,

@@ -12,6 +12,7 @@ use crate::lexer::{OperationTokenType, Source, TokenType};
 use crate::parser::{Error as ParserError, Parser};
 use crate::symbol_table::{Symbol, SymbolEntry, SymbolTable};
 
+#[derive(Debug)]
 pub enum InterpretedType {
     Value(Value),
     Nil,
@@ -42,7 +43,8 @@ impl From<RTError> for InterpreterError {
     }
 }
 
-pub(crate) type Result = std::result::Result<InterpretedType, InterpreterError>;
+pub(crate) type __Result<T> = std::result::Result<T, InterpreterError>;
+pub(crate) type Result = __Result<InterpretedType>;
 pub type ExecResult<T> = std::result::Result<T, Error>;
 
 impl Display for InterpretedType {
@@ -78,13 +80,24 @@ impl<'a> ExecutionContext<'a> {
     }
 }
 
+impl From<Value> for bool {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Float(float) => float != 0.0,
+            Value::Int(int) => int != 0,
+            Value::Bool(b) => b,
+        }
+    }
+}
+
 impl From<InterpretedType> for bool {
     fn from(value: InterpretedType) -> Self {
         match value {
-            InterpretedType::Value(Value::Float(float)) => float != 0.0,
-            InterpretedType::Value(Value::Int(int)) => int != 0,
-            InterpretedType::Value(Value::Bool(b)) => b,
-            _ => panic!("handle con and brk conditions"),
+            InterpretedType::Value(value) => value.into(),
+            InterpretedType::Nil => false,
+            interpreted_type => {
+                panic!("cannot convert {:?} into a boolean value", interpreted_type)
+            }
         }
     }
 }
@@ -94,7 +107,7 @@ impl<'a> From<&InterpretedType> for Symbol {
         match val {
             &InterpretedType::Value(value) => Symbol::Value(value),
             &InterpretedType::Nil => Symbol::Nil,
-            _ => panic!("handle con and brk conditions"),
+            interpreted_type => panic!("cannot convert {:?} into a symbol", interpreted_type),
         }
     }
 }
@@ -103,7 +116,16 @@ impl From<Symbol> for InterpretedType {
         match val {
             Symbol::Value(value) => InterpretedType::Value(value),
             Symbol::Nil => InterpretedType::Nil,
-            _ => panic!("handle con and brk conditions"),
+            sym => panic!("cannot convert {:?} into an interpreted type", sym),
+        }
+    }
+}
+impl From<&Symbol> for InterpretedType {
+    fn from(val: &Symbol) -> Self {
+        match val {
+            &Symbol::Value(value) => InterpretedType::Value(value),
+            Symbol::Nil => InterpretedType::Nil,
+            sym => panic!("cannot convert {:?} into an interpreted type", sym),
         }
     }
 }
@@ -299,19 +321,19 @@ impl Machine {
             Ok(result)
         } else {
             context.visit(node.source);
-            let value = match context.symbol_table.get(&node.identifier) {
-                Some(&Symbol::Value(value)) => value,
-                Some(_) => return Err(RTError {
+            match context.symbol_table.get(&node.identifier) {
+                Some(Symbol::Function(_)) => Err(RTError {
                     name: "Symbol mismatch",
-                    details: "The grammar does not allow functions to be assigned to vars"
-                }.into()),
-                None => return Err(RTError {
+                    details: "The grammar does not allow functions to be assigned to vars",
+                }
+                .into()),
+                None => Err(RTError {
                     name: "Symbol not found",
                     details: "The variable does not exist in the current context",
                 }
-                .into())
-            };
-            Ok(InterpretedType::Value(value))
+                .into()),
+                Some(sym) => Ok(sym.into()),
+            }
         }
     }
 
@@ -321,15 +343,31 @@ impl Machine {
         context: &mut ExecutionContext<'_>,
     ) -> Result {
         context.visit(node.source);
-
         match node.op_token.value {
             TokenType::Operation(OperationTokenType::Arithmetic(arith_type)) => {
-                let input = self.interpret_node(&node.node, context).await;
-                self.unary_arith_op(input, arith_type).await
+                let rhs = match self.interpret_node(&node.node, context).await? {
+                    InterpretedType::Value(value) => value,
+                    _ => return Err(InterpreterError::Runtime(RTError {
+                        name: "Not a number error",
+                        details: "The right hand side of the operation cannot be a break, continue, or nil",
+                    })),
+                };
+                Ok(InterpretedType::Value(
+                    self.unary_arith_op(rhs, arith_type).await,
+                ))
             }
             TokenType::Operation(OperationTokenType::Logic(lgc_type)) => {
-                let input = self.interpret_node(&node.node, context).await;
-                self.unary_logic_op(input, lgc_type).await
+                let rhs = match self.interpret_node(&node.node, context).await? {
+                    res @ (InterpretedType::Value(_) | InterpretedType::Nil) => res.into(),
+                    _ => return Err(InterpreterError::Runtime(RTError {
+                        name: "Not a number error",
+                        details:
+                            "The right hand side of the operation cannot be a break, or continue",
+                    })),
+                };
+                Ok(InterpretedType::Value(
+                    self.unary_logic_op(rhs, lgc_type).await,
+                ))
             }
             _ => unreachable!("A unary operator can only be -/+ or !"),
         }
@@ -340,6 +378,21 @@ impl Machine {
         node: &TermNode,
         context: &mut ExecutionContext<'_>,
     ) -> Result {
+        let handle_arith = |output| match output {
+            InterpretedType::Value(value) => Ok(value),
+            _ => Err(InterpreterError::Runtime(RTError {
+                name: "Not a number error",
+                details: "The right hand side of the operation cannot be a break, continue, or nil",
+            })),
+        };
+        let handle_comparable = |output| match output {
+            res @ (InterpretedType::Value(_) | InterpretedType::Nil) => Ok(res.into()),
+            _ => Err(InterpreterError::Runtime(RTError {
+                name: "Not a number error",
+                details: "The right hand side of the operation cannot be a break, or continue",
+            })),
+        };
+
         let lhs = self.interpret_node(&node.left_node, context).await?;
         let rhs = self.interpret_node(&node.right_node, context).await?;
 
@@ -348,14 +401,28 @@ impl Machine {
 
         match node.op_token.value {
             TokenType::Operation(OperationTokenType::Arithmetic(arith_type)) => {
-                self.term_arith_op(arith_type, lhs, rhs).await
+                let lhs = handle_arith(lhs)?;
+                let rhs = handle_arith(rhs)?;
+                Ok(InterpretedType::Value(
+                    self.term_arith_op(arith_type, lhs, rhs).await?,
+                ))
             }
             TokenType::Operation(OperationTokenType::Comparison(cmp_type)) => {
-                self.term_comp_op(cmp_type, lhs, rhs).await
+                if matches!(&lhs, &InterpretedType::Nil) || matches!(&rhs, &InterpretedType::Nil) {
+                    return Ok(InterpretedType::Value(Value::Bool(false)));
+                }
+                let lhs = handle_arith(lhs)?;
+                let rhs = handle_arith(rhs)?;
+                Ok(InterpretedType::Value(
+                    self.term_comp_op(cmp_type, lhs, rhs).await?,
+                ))
             }
             TokenType::Operation(OperationTokenType::Logic(lgc_type)) => {
-                self.term_logic_op(lgc_type, bool::from(lhs), bool::from(rhs))
-                    .await
+                let lhs = handle_comparable(lhs)?;
+                let rhs = handle_comparable(rhs)?;
+                Ok(InterpretedType::Value(
+                    self.term_logic_op(lgc_type, lhs, rhs).await?,
+                ))
             }
             _ => unreachable!("Only +,-,*,/ are allowed\nop {:?}", node.op_token),
         }
@@ -400,9 +467,9 @@ impl Machine {
                     String::from("nil"),
                     SymbolEntry {
                         value: Symbol::Nil,
-                        is_constant: true
-                    }
-                )
+                        is_constant: true,
+                    },
+                ),
             ])),
         }
     }
@@ -440,7 +507,7 @@ impl Machine {
 
                     last_result = match result {
                         None | Some(InterpretedType::Nil) => None,
-                        Some(output) => Some(output), 
+                        Some(output) => Some(output),
                     };
                 }
                 None => break,
